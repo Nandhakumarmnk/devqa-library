@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevQA Library</title>
+<meta name="description" content="Offline interview answer library for .NET, SQL, React, jQuery, Azure and Microservices — answers mapped to Nandhakumar M's real projects.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128218;</text></svg>">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo">N</div>
+      <div class="brand-txt">
+        <strong>DevQA Library</strong>
+        <span id="brandCount">loading…</span>
+      </div>
+      <button class="icon-btn only-mobile" id="closeSide" title="Close">&times;</button>
+    </div>
+
+    <button class="new-btn" id="newChat">
+      <svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      New question
+    </button>
+
+    <div class="side-section">
+      <div class="side-label">Topics</div>
+      <div id="topicList" class="topic-list"></div>
+    </div>
+
+    <div class="side-section grow">
+      <div class="side-label">
+        Recent
+        <button class="link-btn" id="clearRecent">clear</button>
+      </div>
+      <div id="recentList" class="recent-list"></div>
+    </div>
+
+    <div class="side-foot">
+      <button class="foot-btn" id="libBtn">
+        <svg viewBox="0 0 24 24" width="15" height="15"><path d="M4 5h6v14H4zM14 5h6v14h-6z" stroke="currentColor" stroke-width="1.7" fill="none"/></svg>
+        Browse library
+      </button>
+      <button class="foot-btn" id="themeBtn">
+        <svg viewBox="0 0 24 24" width="15" height="15"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" stroke="currentColor" stroke-width="1.7" fill="none"/></svg>
+        <span id="themeTxt">Light mode</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn only-mobile" id="openSide" title="Menu">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <div class="topbar-title" id="topbarTitle">All topics</div>
+      <div class="topbar-right">
+        <select id="topicSelect" class="select" title="Filter by topic"></select>
+        <div class="progress-pill" id="progressPill" title="Questions you marked as learned">0%</div>
+      </div>
+    </header>
+
+    <!-- chat thread -->
+    <section class="thread" id="thread">
+      <div class="welcome" id="welcome">
+        <div class="hero-logo">N</div>
+        <h1>What do you want to revise?</h1>
+        <p class="hero-sub">Type a keyword — <b>solid</b>, <b>index</b>, <b>useEffect</b>, <b>middleware</b> — and get the interview answer plus where you used it in your own projects.</p>
+        <div class="chips" id="starterChips"></div>
+        <div class="hero-grid" id="heroGrid"></div>
+      </div>
+    </section>
+
+    <!-- library browse -->
+    <section class="library" id="library" hidden>
+      <div class="lib-head">
+        <h2>Question Library</h2>
+        <input type="search" id="libFilter" class="lib-filter" placeholder="Filter questions…">
+      </div>
+      <div id="libBody"></div>
+    </section>
+
+    <!-- composer -->
+    <div class="composer">
+      <div class="suggest" id="suggest" hidden></div>
+      <div class="composer-box" id="composerBox">
+        <textarea id="input" rows="1" placeholder="Ask a keyword or a question…   (press / to focus)" autocomplete="off" spellcheck="false"></textarea>
+        <button class="send" id="send" title="Search">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="composer-hint">Runs fully offline on your machine · no internet, no API, no cost · <span id="speedTxt">—</span></div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- data packs (plain JS so it works by double-clicking the file) -->
+<script src="data/qa-csharp.js"></script>
+<script src="data/qa-solid.js"></script>
+<script src="data/qa-aspnet.js"></script>
+<script src="data/qa-sql.js"></script>
+<script src="data/qa-jquery.js"></script>
+<script src="data/qa-react.js"></script>
+<script src="data/qa-azure.js"></script>
+<script src="data/qa-microservices.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
