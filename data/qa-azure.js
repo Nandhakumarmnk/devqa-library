@@ -177,6 +177,17 @@ window.QA = (window.QA || []).concat([
   answer: "Azure AD (Entra ID) implements OAuth 2.0 and OpenID Connect. The app is registered, the user is redirected to sign in, and the app receives an ID token (who the user is) and an access token (what they may call). `Microsoft.Identity.Web` wires this into ASP.NET Core with a few lines.\nBenefits: single sign-on across Microsoft 365 and line-of-business apps, MFA and conditional access enforced centrally, no password storage in the application, and groups or app roles mapped to claims for authorisation.\nConceptually it is the same claims-based model as the JWT work I do — the difference is the token is issued by Azure AD rather than my own login endpoint, and validated against its published signing keys.",
   project: "Our applications use ASP.NET Identity with role-based access and JWT for the portal APIs rather than Azure AD. The model is the same — validate a signed token, build the ClaimsPrincipal, enforce roles with `[Authorize]` — so I would describe Azure AD as a change of issuer, not a change of pattern.",
   remember: "Azure AD issues the token; your API validates it and reads the claims — same model as your own JWT."
+},
+
+{
+  id: "az-tfs", topic: "azure",
+  q: "TFS vs Git — have you worked with both?",
+  tags: ["tfs", "tfvc", "team foundation server", "tfs vs git", "centralised vs distributed", "migrate tfs to git"],
+  simple: "TFS is the older Microsoft system where the server holds the one true copy and you check files out. Git gives every developer a full copy of the history and you work on branches. Both exist in our estate.",
+  answer: "**TFVC (the version control in TFS)** is centralised: one server copy, files checked out, changesets numbered in sequence, and branching is heavy enough that teams avoid it. It also needs the server to be reachable for most operations.\n**Git** is distributed: every clone has the whole history, commits are local, branching is cheap and therefore routine, and merges happen constantly rather than being events.\nThe practical differences that matter day to day: Git lets me commit while offline and rewrite my own local history before sharing it; TFVC gives simpler locking for large binary files and a single authoritative sequence.\nAzure DevOps hosts both, so the work-item tracking, boards and pipelines are the same either way — only the version control differs.\n**Migrating TFVC to Git**: `git-tfs` or the Azure DevOps import can bring history across, though in practice teams often import a limited history and keep the old TFVC repo read-only for archaeology. The harder part is not the tooling — it is retraining people out of checkout-and-lock and into branch-and-merge.",
+  code: "git checkout -b feature/vendor-bank-details\ngit commit -m \"Add vendor bank detail validation\"   # works offline\ngit fetch origin && git rebase origin/main\ngit push -u origin feature/vendor-bank-details",
+  project: "We work in Git and Azure DevOps, with some older repositories still on TFS. Being comfortable in both is normal in enterprise .NET — a lot of long-lived systems have a TFVC history behind them, and new work goes into Git.",
+  remember: "TFVC = central, checkout, heavy branching. Git = distributed, cheap branches, offline commits."
 }
 
 ]);

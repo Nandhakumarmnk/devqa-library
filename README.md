@@ -6,7 +6,7 @@ Type a keyword — `solid`, `index`, `useEffect`, `jwt`, `middleware` — and th
 is on screen in a couple of milliseconds. No server, no build step, no API key, no
 internet connection, and nothing to install.
 
-**194 answers** across ten topics, each one written in the same four layers:
+**214 answers** across eleven topics, each one written in the same four layers:
 
 | Block | What it gives you |
 |---|---|
@@ -42,6 +42,7 @@ tags rather than `fetch`, specifically so the page works straight from the files
 | Azure & Functions | 17 | triggers and bindings, hosting plans, Durable Functions, Key Vault, CI/CD, scaling |
 | Microservices | 17 | monolith vs services, communication, resilience, saga, tracing, when *not* to split |
 | HTML, CSS & TypeScript | 6 | TypeScript, semantic HTML, the box model, flexbox vs grid, responsive design, CSS specificity |
+| Coding Round | 19 | reverse a string, palindrome, duplicates, two sum, binary search, sorting, LINQ GroupBy, Big-O |
 
 ## Features
 
@@ -70,7 +71,7 @@ bounded Damerau-Levenshtein distance (how far wrong a word may be scales with it
 length), and a described symptom is matched by how much of a known problem phrase it
 covers. There is always a best answer — the page never dead-ends on "no results".
 
-Searching all 194 answers takes about 2 ms, which the footer reports live.
+Searching all 214 answers takes about 2 ms, which the footer reports live.
 
 ## Add your own questions
 
@@ -79,7 +80,7 @@ Open any file in `data/` and append an object:
 ```js
 {
   id: "sql-my-new-one",            // unique
-  topic: "sql",                    // csharp solid aspnet adonet sql jquery react azure microservices web
+  topic: "sql",                    // csharp solid aspnet adonet sql jquery react azure microservices web coding
   star: true,                      // optional — features it on the home screen
   q: "The question as an interviewer would ask it",
   tags: ["keyword", "short form", "another phrasing"],

@@ -17,6 +17,7 @@
     azure:         { name: 'Azure & Functions', color: '#0ea5e9' },
     microservices: { name: 'Microservices',    color: '#10a37f' },
     web:           { name: 'HTML, CSS & TypeScript', color: '#fb923c' },
+    coding:        { name: 'Coding Round',      color: '#2dd4bf' },
     projects:      { name: 'My Projects',       color: '#e11d48' },
     hr:            { name: 'HR & Project Talk', color: '#ec4899' }
   };
