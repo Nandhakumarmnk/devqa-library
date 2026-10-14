@@ -193,6 +193,17 @@ window.QA = (window.QA || []).concat([
   code: "// this is what DI buys you - no database needed\nvar repo = new Mock<IVendorRepository>();\nrepo.Setup(r => r.GetAsync(1)).ReturnsAsync(new Vendor { Id = 1, Status = \"BLOCKED\" });\n\nvar service = new VendorService(repo.Object, Mock.Of<IEmailSender>());\nvar result  = await service.ApproveAsync(1);\n\nAssert.False(result.Success);   // a blocked vendor cannot be approved",
   project: "There is no test project in our solutions — that is the point of the answer, and saying it plainly is better than being caught. What I do point at is the design: every service takes its dependencies through the constructor behind interfaces, so the seam a test would need is already there.",
   remember: "No suite — say so. Then: the design is testable, and here is where I would start."
+},
+
+{
+  id: "sol-chain", topic: "solid", star: true,
+  q: "Chain of Responsibility pattern",
+  tags: ["chain of responsibility", "handler chain", "approval chain", "behavioural pattern", "middleware pattern"],
+  simple: "A request is passed along a line of handlers until one of them deals with it. The sender does not know which handler will take it, and each handler only has to know whether the request is its business.",
+  answer: "Each handler holds a reference to the next one. It either handles the request or passes it on; the caller just hands it to the front of the chain.\nThe textbook example is **approval by amount** — a manager approves up to a limit, above that it goes to a director, above that to finance. Adding a new level is a new handler inserted in the chain, not an edit to a growing if-else, which makes it Open/Closed in practice.\nThe benefit is decoupling: the sender does not know who handles it, and each handler has one rule.\nThe risks: a request can fall off the end unhandled (so decide deliberately whether that is an error or a no-op), and a long chain is harder to follow in a debugger than a switch statement — so it earns its place when the chain genuinely changes, not when there are two fixed cases.\n**You already use it every day**: the ASP.NET Core middleware pipeline *is* this pattern — each component inspects the request, optionally does work, and calls `next()` or short-circuits.",
+  code: "public abstract class Approver\n{\n    protected Approver Next;\n    public Approver SetNext(Approver next) { Next = next; return next; }\n    public abstract void Handle(PurchaseRequest r);\n}\n\npublic class Manager : Approver\n{\n    public override void Handle(PurchaseRequest r)\n    {\n        if (r.Amount <= 50000) Approve(r);\n        else Next?.Handle(r);          // pass it up\n    }\n}\n// manager.SetNext(director).SetNext(finance);",
+  project: "The approval workflow in the procurement platform is this shape — a request moves up by value and type until someone is authorised to decide, and the workflow engine was later separated from its UI so more than one application could drive the same chain. The middleware pipeline in the Vendor Portal API is the same pattern in framework form.",
+  remember: "Each handler either deals with it or calls the next. ASP.NET Core middleware is exactly this."
 }
 
 ]);

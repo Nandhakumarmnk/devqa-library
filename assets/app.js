@@ -18,6 +18,7 @@
     microservices: { name: 'Microservices',    color: '#10a37f' },
     web:           { name: 'HTML, CSS & TypeScript', color: '#fb923c' },
     coding:        { name: 'Coding Round',      color: '#2dd4bf' },
+    scenario:      { name: 'Scenario Based',    color: '#c084fc' },
     projects:      { name: 'My Projects',       color: '#e11d48' },
     hr:            { name: 'HR & Project Talk', color: '#ec4899' }
   };

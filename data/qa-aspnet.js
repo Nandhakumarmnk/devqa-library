@@ -232,7 +232,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-session-state", topic: "aspnet",
   q: "How is state managed in a web application?",
-  tags: ["session", "state management", "cookies", "stateless", "session vs jwt"],
+  tags: ["session", "state management", "cookies", "stateless", "session vs jwt", "scale sessions across servers", "distributed session", "sticky session", "redis session state", "session disadvantages"],
   simple: "HTTP forgets you after every request. You either store something on the client (cookie or token) or keep a session on the server.",
   answer: "Client side: cookies (small, sent automatically — mark them HttpOnly, Secure, SameSite), localStorage/sessionStorage, or a JWT held by the SPA.\nServer side: session state (in-memory by default, so it breaks across a web farm unless you move it to SQL Server or Redis), caches, or the database itself.\nFor APIs I prefer stateless token auth — no server session to replicate, which makes scaling out and recycling painless. For traditional MVC screens, cookie authentication with a distributed session is the practical choice.\nI keep session data small and never put sensitive data in a non-HttpOnly cookie or in localStorage where XSS can read it.",
   project: "The MVC procurement modules use cookie authentication with ASP.NET Identity, while the React Vendor Portal uses stateless JWT against the API. That split is deliberate: the SPA never needs a server session, so the API scales and recycles without anyone being logged out mid-task.",

@@ -13,6 +13,8 @@ window.QA_PROBLEMS = [
 
 /* ---------- performance ---------- */
 { id: "sql-slow-query", p: [
+  "filtering by today on an indexed date column is slow",
+  "cast on a date column stops the index being used",
   "my query is running very slow",
   "the screen takes too long to load",
   "report is timing out",
@@ -197,6 +199,11 @@ window.QA_PROBLEMS = [
   "the user cannot see the progress of a long running job",
   "the page has to keep refreshing to check status",
   "how do i push an update to the browser" ] },
+
+{ id: "net-session-state", p: [
+  "users get logged out when we add a second server",
+  "how do we share session across multiple servers",
+  "session is lost after an app pool recycle" ] },
 
 /* ---------- security ---------- */
 { id: "ado-injection", p: [
