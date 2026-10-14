@@ -182,6 +182,17 @@ window.QA = (window.QA || []).concat([
   answer: "DRY: one authoritative place for each rule. The caveat is that two blocks that merely look alike are not duplication — forcing them together creates a method with five flags, which is worse.\nKISS: the simplest thing that works and reads clearly. A clever one-liner nobody can debug at 2 am is a liability.\nYAGNI: do not add configuration, abstraction or caching for a requirement that does not exist. Abstractions added speculatively are the ones that end up wrong.\nTogether they are the counterweight to over-engineering — SOLID tells you how to structure what you need, these tell you not to build what you do not.",
   project: "Where DRY paid off for us was the React side of the Vendor Portal — the shared form, grid, modal and validation components mean a new vendor screen reuses tested pieces instead of copying markup, which keeps behaviour consistent across registration, onboarding and approval.",
   remember: "DRY once, KISS always, YAGNI until someone asks."
+},
+
+{
+  id: "sol-testing", topic: "solid", star: true,
+  q: "Do you write unit tests?",
+  tags: ["unit tests", "xunit nunit", "test coverage", "tdd", "moq", "testable code"],
+  simple: "Answer this one honestly. If there is no test suite, say so plainly and then say what you do have — manual QA, and a design that would be testable. Never bluff it, because the next question is always what framework and how you mock.",
+  answer: "The honest answer first: **no automated test suite**. Testing was done manually by our QA team, and defects came back to me as Azure DevOps work items.\nThen what is actually true: I know xUnit and NUnit as concepts, and the repository-behind-an-interface design I use is exactly what makes code testable — constructor injection means a service can be built with a mocked repository, with no database and no HTTP context. I have written code that is testable without having written the tests.\nAnd what I would do given the chance: start with unit tests on the business rules and the validators, where the value is highest and the setup is cheapest, then integration tests on the critical API endpoints. I would not chase a coverage percentage — a suite that tests getters to hit 80% tells you nothing.\nInterviewers respect this answer. They do not respect a claimed test suite that falls apart when they ask how you mocked the DbContext.",
+  code: "// this is what DI buys you - no database needed\nvar repo = new Mock<IVendorRepository>();\nrepo.Setup(r => r.GetAsync(1)).ReturnsAsync(new Vendor { Id = 1, Status = \"BLOCKED\" });\n\nvar service = new VendorService(repo.Object, Mock.Of<IEmailSender>());\nvar result  = await service.ApproveAsync(1);\n\nAssert.False(result.Success);   // a blocked vendor cannot be approved",
+  project: "There is no test project in our solutions — that is the point of the answer, and saying it plainly is better than being caught. What I do point at is the design: every service takes its dependencies through the constructor behind interfaces, so the seam a test would need is already there.",
+  remember: "No suite — say so. Then: the design is testable, and here is where I would start."
 }
 
 ]);

@@ -10,6 +10,7 @@
     csharp:        { name: 'C# / .NET',        color: '#9b7bff' },
     solid:         { name: 'OOP & SOLID',      color: '#f0b429' },
     aspnet:        { name: 'ASP.NET Core / API', color: '#4f8cff' },
+    adonet:        { name: 'ADO.NET',          color: '#84cc16' },
     sql:           { name: 'SQL Server',       color: '#ff7a59' },
     jquery:        { name: 'JavaScript & jQuery', color: '#f5d547' },
     react:         { name: 'React.js',         color: '#38bdf8' },
@@ -74,20 +75,55 @@
   }
   function uniq(a) { var m = {}, r = []; for (var i=0;i<a.length;i++){ if(!m[a[i]]){m[a[i]]=1;r.push(a[i]);} } return r; }
 
-  /* edit distance capped at 1 — cheap typo tolerance */
-  function near(a, b) {
-    if (a === b) return true;
+  /* ---------- typo tolerance ----------
+     Levenshtein distance, abandoned as soon as it exceeds max.
+     Returns the distance, or max+1 when it is worse than that.      */
+  function dist(a, b, max) {
+    if (a === b) return 0;
     var la = a.length, lb = b.length;
-    if (Math.abs(la - lb) > 1) return false;
-    if (la < 5 && lb < 5) return false;
-    var i = 0, j = 0, diff = 0;
-    while (i < la && j < lb) {
-      if (a.charAt(i) === b.charAt(j)) { i++; j++; continue; }
-      if (++diff > 1) return false;
-      if (la > lb) i++; else if (lb > la) j++; else { i++; j++; }
+    if (Math.abs(la - lb) > max) return max + 1;
+    var prev = [], cur = [], i, j;
+    for (j = 0; j <= lb; j++) prev[j] = j;
+    for (i = 1; i <= la; i++) {
+      cur[0] = i;
+      var best = cur[0];
+      for (j = 1; j <= lb; j++) {
+        var cost = a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1;
+        cur[j] = Math.min(cur[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+        // transposition — "teh" for "the", the commonest real typo
+        if (i > 1 && j > 1 &&
+            a.charAt(i - 1) === b.charAt(j - 2) &&
+            a.charAt(i - 2) === b.charAt(j - 1)) {
+          cur[j] = Math.min(cur[j], prev[j - 2] === undefined ? cur[j] : prev[j - 2] + 1);
+        }
+        if (cur[j] < best) best = cur[j];
+      }
+      if (best > max) return max + 1;       // no way back under the limit
+      prev = cur.slice();
     }
-    if (i < la || j < lb) diff++;
-    return diff <= 1;
+    return prev[lb];
+  }
+
+  /* how wrong a word is allowed to be, by length */
+  function allowance(len) {
+    if (len <= 3) return 0;
+    if (len <= 5) return 1;
+    if (len <= 9) return 2;
+    return 3;
+  }
+
+  /* 0 = no match, 1 = exact, lower for a sloppier match */
+  function similarity(q, w) {
+    if (q === w) return 1;
+    // one word inside the other: "procedur" / "procedure", "auth" / "authentication"
+    if (q.length >= 4 && w.indexOf(q) === 0) return 0.9;
+    if (w.length >= 4 && q.indexOf(w) === 0) return 0.85;
+    if (q.length >= 5 && w.indexOf(q) > 0) return 0.7;
+    var max = allowance(Math.max(q.length, w.length));
+    if (!max) return 0;
+    var d = dist(q, w, max);
+    if (d > max) return 0;
+    return 1 - (d / (Math.max(q.length, w.length) + 1));
   }
 
   /* ---------- build the index ---------- */
@@ -104,6 +140,24 @@
     d.topicName = (TOPICS[d.topic] || {}).name || d.topic;
   });
 
+  /* ---------- problem statements ----------
+     'my click stops working after the grid refreshes' -> the delegation answer.
+     Each phrase is tokenised once and hung on the answer it solves.          */
+  (function attachProblems() {
+    var byId = {};
+    DATA.forEach(function (d) { byId[d.id] = d; d.probs = []; d.probTok = []; });
+    (window.QA_PROBLEMS || []).forEach(function (entry) {
+      var d = byId[entry.id];
+      if (!d) { return; }                       // id typo - ignore rather than break
+      (entry.p || []).forEach(function (phrase) {
+        var n = norm(phrase);
+        d.probs.push(n);
+        d.probTok = d.probTok.concat(toks(phrase));
+      });
+    });
+    DATA.forEach(function (d) { d.probTok = uniq(d.probTok); d.probText = d.probs.join(' | '); });
+  })();
+
   /* vocabulary for typo-correction */
   var VOCAB = (function () {
     var m = {};
@@ -114,7 +168,9 @@
   })();
 
   /* ---------- scoring ---------- */
+  var corrections = {};                 // {typed: whatWeMatched} from the last search
   function search(q, topic) {
+    corrections = {};
     var qn = norm(q);
     if (!qn) return [];
     var qt = uniq(toks(q));
@@ -124,7 +180,7 @@
     for (var i = 0; i < DATA.length; i++) {
       var d = DATA[i];
       if (topic && d.topic !== topic) continue;
-      var s = 0, hit = 0;
+      var s = 0, hit = 0, docCorr = null;
 
       if (d.qNorm === qn) s += 200;
       // a phrase found in the title counts; a single word in a long title does not count twice
@@ -132,6 +188,21 @@
       if (d.tagList.indexOf(qn) >= 0) s += 150;            // typed exactly a curated keyword
       else if ((' ' + d.tagText + ' ').indexOf(' ' + qn + ' ') >= 0) s += 95;
       if (qn.length > 6 && d.bodyText.indexOf(qn) >= 0) s += 22;
+
+      // described-symptom match - how much of one problem phrase did they say
+      if (d.probs.length && qt.length >= 2) {
+        var bestP = 0;
+        for (var pi = 0; pi < d.probs.length; pi++) {
+          var pt = uniq(toks(d.probs[pi]));
+          if (!pt.length) continue;
+          var shared = 0;
+          for (var qi = 0; qi < qt.length; qi++) if (pt.indexOf(qt[qi]) >= 0) shared++;
+          var cover = shared / Math.max(pt.length, qt.length);
+          if (cover > bestP) bestP = cover;
+        }
+        if (bestP >= 0.34) s += 60 + 110 * bestP;      // they described the problem
+        else if (bestP > 0) s += 18 * bestP;
+      }
 
       for (var k = 0; k < qt.length; k++) {
         var t = qt[k], got = 0;
@@ -144,13 +215,21 @@
         if (d.tagTok.indexOf(t) >= 0) { s += 16; got = 1; }
         else if (d.tagText.indexOf(t) >= 0) { s += 8; got = 1; }
         if (!got && d.bodyText.indexOf(t) >= 0) { s += 4; got = 1; }
-        if (!got && t.length >= 4) {                       // typo tolerance
+        if (!got && t.length >= 3) {                       // misspelt or partial word
+          var bestSim = 0, bestWord = null, sim;
           for (var b = 0; b < d.titleTok.length; b++) {
-            if (near(t, d.titleTok[b])) { s += 16; got = 1; break; }
+            sim = similarity(t, d.titleTok[b]);
+            if (sim > bestSim) { bestSim = sim; bestWord = d.titleTok[b]; }
           }
-          if (!got) for (var c = 0; c < d.tagTok.length; c++) {
-            if (near(t, d.tagTok[c])) { s += 13; got = 1; break; }
+          if (bestSim) { s += 24 * bestSim; got = 1; }
+          else {
+            for (var c = 0; c < d.tagTok.length; c++) {
+              sim = similarity(t, d.tagTok[c]);
+              if (sim > bestSim) { bestSim = sim; bestWord = d.tagTok[c]; }
+            }
+            if (bestSim) { s += 19 * bestSim; got = 1; }
           }
+          if (bestWord && bestSim >= 0.6 && bestWord !== t) (docCorr = docCorr || {})[t] = bestWord;
         }
         if (got) hit++;
       }
@@ -159,7 +238,7 @@
       if (hit === qt.length && qt.length > 1) s += 26;          // covered every word
       s += Math.max(0, 9 - d.titleTok.length) * 0.6;            // prefer tight titles
       if (d.topic === topic) s += 6;
-      res.push({ d: d, s: s });
+      res.push({ d: d, s: s, corr: docCorr });
     }
 
     res.sort(function (x, y) { return y.s - x.s || x.d._i - y.d._i; });
@@ -225,7 +304,7 @@
     var sel = '<option value="">All topics (' + DATA.length + ')</option>';
     Object.keys(TOPICS).forEach(function (k) {
       if (!counts[k]) return;
-      html += '<div class="topic" data-topic="' + k + '"><span class="dot" style="background:' + TOPICS[k].color + '"></span>' +
+      html += '<div class="topic" data-topic="' + k + '" style="--topic-color:' + TOPICS[k].color + '"><span class="dot" style="background:' + TOPICS[k].color + '"></span>' +
               TOPICS[k].name + '<span class="cnt">' + counts[k] + '</span></div>';
       sel += '<option value="' + k + '">' + TOPICS[k].name + ' (' + counts[k] + ')</option>';
     });
@@ -268,9 +347,9 @@
       var list = DATA.filter(function (d) { return d.topic === k; });
       if (!list.length) return;
       var sample = list.filter(function (d) { return d.star; })[0] || list[0];
-      cards += '<div class="hero-card" data-q="' + esc(sample.q) + '">' +
-        '<h3><span class="dot" style="background:' + TOPICS[k].color + '"></span>' + TOPICS[k].name + '</h3>' +
-        '<p>' + list.length + ' answers · try "' + esc((sample.tags && sample.tags[0]) || sample.q).slice(0, 38) + '"</p></div>';
+      cards += '<div class="hero-card" data-q="' + esc(sample.q) + '" style="--topic-color:' + TOPICS[k].color + '">' +
+        '<h3><span class="dot" style="background:' + TOPICS[k].color + '"></span>' + TOPICS[k].name + '<span class="count">' + list.length + '</span></h3>' +
+        '<p>try "' + esc((sample.tags && sample.tags[0]) || sample.q).slice(0, 40) + '"</p></div>';
     });
     $('heroGrid').innerHTML = cards;
 
@@ -391,6 +470,7 @@
 
     var t0 = performance.now();
     var res = search(q, activeTopic);
+    var corr = (res[0] && res[0].corr) || {};
     var ms = Math.max(1, Math.round((performance.now() - t0) * 10) / 10);
     $('speedTxt').textContent = 'matched ' + DATA.length + ' answers in ' + ms + ' ms';
 
@@ -399,22 +479,33 @@
 
     setTimeout(function () {
       var holder = loading.querySelector('.body');
-      if (!res.length || res[0].s < 14) {
-        var near5 = res.slice(0, 5);
-        if (!near5.length) near5 = DATA.filter(function (d) { return d.star; }).slice(0, 5).map(function (d) { return { d: d }; });
-        holder.innerHTML = '<div class="nores"><p>No exact match for <b>' + esc(q) +
-          '</b> in the library yet.</p><p>Closest things I do have:</p></div>' +
+      if (!res.length) {
+        // genuinely nothing — offer the best starting points rather than a dead end
+        var picks = DATA.filter(function (d) { return d.star; }).slice(0, 6);
+        holder.innerHTML = '<div class="nores"><p>Nothing in the library matches <b>' + esc(q) +
+          '</b> yet.</p><p>These are good places to start:</p></div>' +
           '<div class="rel-chips" style="margin-top:10px">' +
-          near5.map(function (r) { return '<button class="rel" data-ask="' + esc(r.d.q) + '">' + esc(r.d.q) + '</button>'; }).join('') +
+          picks.map(function (d) { return '<button class="rel" data-ask="' + esc(d.q) + '">' + esc(d.q) + '</button>'; }).join('') +
           '</div>';
       } else {
         var top = res[0].d;
+        // a weak top hit still gets answered — say so rather than showing nothing
+        var fixed = Object.keys(corr);
+        if (res[0].s < 30 || fixed.length) {
+          holder.innerHTML =
+            '<div class="didyoumean">' +
+            (fixed.length
+              ? 'Searched for <b>' + esc(fixed.map(function (k) { return corr[k]; }).join(' ')) +
+                '</b> instead of <i>' + esc(fixed.join(' ')) + '</i>.'
+              : 'No exact match for <i>' + esc(q) + '</i> — this is the closest answer.') +
+            '</div>';
+        }
         var rel = res.slice(1, 6).filter(function (r) { return r.s >= 25; }).map(function (r) { return r.d; });
         if (rel.length < 4) {
           DATA.filter(function (d) { return d.topic === top.topic && d.id !== top.id; }).slice(0, 4 - rel.length)
             .forEach(function (d) { rel.push(d); });
         }
-        holder.innerHTML = answerHTML(top, ms, rel);
+        holder.innerHTML += answerHTML(top, ms, rel);
         pushRecent(q);
       }
       bindAnswer(holder);
@@ -495,7 +586,7 @@
       html += '<div class="lib-group"><h3><span class="dot" style="background:' + TOPICS[k].color + '"></span>' +
         TOPICS[k].name + ' · ' + list.length + '</h3><div class="lib-grid">' +
         list.map(function (d) {
-          return '<div class="lib-card ' + (learned[d.id] ? 'learned' : '') + '" data-ask="' + esc(d.q) + '">' +
+          return '<div class="lib-card ' + (learned[d.id] ? 'learned' : '') + '" data-ask="' + esc(d.q) + '" style="--topic-color:' + TOPICS[k].color + '">' +
             '<div class="lq">' + esc(d.q) + '</div>' +
             '<div class="lt">' + esc(String(d.simple || d.answer).replace(/\*\*/g, '').replace(/`/g, '')) + '</div></div>';
         }).join('') + '</div></div>';
@@ -545,7 +636,17 @@
   $('libBtn').onclick = function () { showLibrary(library.hidden); closeSidebar(); };
   $('libFilter').oninput = function () { buildLibrary(this.value); };
   $('clearRecent').onclick = function () { recent = []; LS.set('recent', recent); buildRecent(); };
-  $('openSide').onclick = function () { $('sidebar').classList.add('open'); };
+  function toggleNav(force) {
+    if (window.innerWidth <= 860) {           // mobile: slide the panel over the page
+      $('sidebar').classList.toggle('open');
+      return;
+    }
+    var app = $('app');
+    var collapsed = force === undefined ? !app.classList.contains('nav-collapsed') : force;
+    app.classList.toggle('nav-collapsed', collapsed);
+    LS.set('navCollapsed', collapsed);
+  }
+  $('openSide').onclick = function () { toggleNav(); };
   $('closeSide').onclick = closeSidebar;
   $('themeBtn').onclick = function () {
     var cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
@@ -554,7 +655,8 @@
     LS.set('theme', cur);
   };
   document.addEventListener('keydown', function (e) {
-    if (e.key === '/' && document.activeElement !== input) { e.preventDefault(); input.focus(); }
+    if (e.key === '/' && document.activeElement !== input) { e.preventDefault(); input.focus(); return; }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) { e.preventDefault(); toggleNav(); }
   });
 
   /* ---------- debug + extension hook ---------- */
@@ -565,6 +667,7 @@
     var th = LS.get('theme', 'dark');
     document.documentElement.setAttribute('data-theme', th);
     $('themeTxt').textContent = th === 'light' ? 'Dark mode' : 'Light mode';
+    if (LS.get('navCollapsed', false) && window.innerWidth > 860) $('app').classList.add('nav-collapsed');
     buildSidebar();
     buildWelcome();
     buildRecent();
@@ -573,6 +676,6 @@
     input.focus();
     // deep link:  index.html#q=solid
     var m = location.hash.match(/#q=(.+)/);
-    if (m) ask(decodeURIComponent(m[1]));
+    if (m) ask(decodeURIComponent(m[1]).replace(/\+/g, ' '));   // + means space in a URL
   })();
 })();

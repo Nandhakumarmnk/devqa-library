@@ -237,6 +237,39 @@ window.QA = (window.QA || []).concat([
   answer: "Client side: cookies (small, sent automatically — mark them HttpOnly, Secure, SameSite), localStorage/sessionStorage, or a JWT held by the SPA.\nServer side: session state (in-memory by default, so it breaks across a web farm unless you move it to SQL Server or Redis), caches, or the database itself.\nFor APIs I prefer stateless token auth — no server session to replicate, which makes scaling out and recycling painless. For traditional MVC screens, cookie authentication with a distributed session is the practical choice.\nI keep session data small and never put sensitive data in a non-HttpOnly cookie or in localStorage where XSS can read it.",
   project: "The MVC procurement modules use cookie authentication with ASP.NET Identity, while the React Vendor Portal uses stateless JWT against the API. That split is deliberate: the SPA never needs a server session, so the API scales and recycles without anyone being logged out mid-task.",
   remember: "Cookie/session for server-rendered apps, token for SPAs and APIs. Keep session small."
+},
+
+{
+  id: "net-claims", topic: "aspnet", star: true,
+  q: "What are claims and how did you use them?",
+  tags: ["claims", "claimsprincipal", "claims identity", "custom claims factory", "tenant isolation"],
+  simple: "Claims are extra facts stamped onto the logged-in user — for us, the role and the vendor code. They travel with every request, so the server always knows who is asking and what they are allowed to see.",
+  answer: "A claim is a name/value pair on the `ClaimsPrincipal` — user id, role, email, or anything the application needs. They are built at login and carried in the cookie or the JWT, so every later request arrives already knowing who the user is.\nThe part that matters is using them for **data filtering**, not just for display. A custom claims principal factory adds the business key at login, and the data layer reads it from the claims rather than from the request — so the filter cannot be tampered with by changing a value in the URL or the payload.\nThat closes the broken-object-level-authorization hole: an `[Authorize]` attribute proves the user is logged in and has a role, but only a claims-driven filter stops *this* logged-in user reading *another* user's record.",
+  code: "// at login\nidentity.AddClaim(new Claim(\"VendorCode\", vendor.Code));\n\n// in the data layer - the filter comes from the token, never from the request\nvar vendorCode = _user.FindFirstValue(\"VendorCode\");\nvar rows = await _repo.GetPurchaseOrdersAsync(vendorCode);",
+  project: "This is the heart of security in the Vendor Portal. At login we build the user's claims with a custom claims principal factory, including the vendor code; every repository reads that code from the claims and filters the query by it. A vendor physically cannot see another vendor's purchase orders, even by changing an id in the URL. The claims factory, the claims management service and the attach-claims middleware are the three pieces that make that work.",
+  remember: "Claims travel with the request. Filter data by the claim, never by a value the user sent."
+},
+
+{
+  id: "net-viewmodel-dto", topic: "aspnet", star: true,
+  q: "Model, ViewModel and DTO — what is the difference?",
+  tags: ["model vs viewmodel vs dto", "dto", "viewmodel", "entity vs dto", "automapper"],
+  simple: "Model is the database entity. ViewModel is exactly the fields one screen needs. DTO is what crosses an API boundary. They look similar and they are not the same thing.",
+  answer: "- **Model / entity** — maps to the table. Owned by the data layer, carries every column including internal ones.\n- **ViewModel** — shaped for one screen: the fields that screen shows, plus whatever it needs for validation and dropdowns. It can combine several entities.\n- **DTO** — the contract on the wire. It is the public shape of your API, so changing it breaks callers.\nI never send the entity straight to a view or to an API caller. Three reasons: the response stays small, internal columns do not leak out, and over-posting is blocked — a user cannot set `IsApproved` or `CreatedBy` just by adding it to the JSON, because the DTO has no such property.\nMapping can be by hand or with AutoMapper. Hand-written mapping is more code but it is explicit, and it fails at compile time when a property changes.",
+  code: "public class PurchaseOrder { public int Id; public decimal Total; public int CreatedBy; /* entity */ }\n\npublic record PoListDto(int Id, string Number, decimal Total);   // what the API returns\n\npublic class PoEditViewModel {                                   // what one screen needs\n    public PoListDto Po { get; set; }\n    public List<SelectListItem> Vendors { get; set; }\n}",
+  project: "Every one of our applications is built this way — the Vendor Portal has a ViewModel folder for its screens, and Data Exchange, Smart Documents and the Work Flow modules each have DTO folders for what crosses the API boundary. Keeping those separate is also what stops an internal audit column appearing in a JSON response.",
+  remember: "Entity = the table. ViewModel = one screen. DTO = the wire. Never return the entity."
+},
+
+{
+  id: "net-signalr", topic: "aspnet",
+  q: "What is SignalR and where did you use it?",
+  tags: ["signalr", "websocket", "real time", "push notification", "progress bar", "hub"],
+  simple: "SignalR lets the server push a message to an open browser page, instead of the page asking again and again whether anything has changed.",
+  answer: "SignalR is the real-time library in ASP.NET Core. It negotiates the best available transport — WebSockets first, falling back to Server-Sent Events or long polling — and hides that behind a simple hub API. The server calls a method on the client; the client calls a method on the hub.\nWhere it earns its place: progress for a long-running job, live dashboards, notifications, and anything where the alternative is the browser polling every few seconds and mostly being told nothing changed.\nThings to plan for: with more than one server you need a backplane (Redis or Azure SignalR) so a message reaches a client connected to a different instance, hubs should be thin and push work to a service, and connections must be grouped or targeted by user so one tenant's progress is not broadcast to everyone.",
+  code: "await _hub.Clients.Group(jobId)\n    .SendAsync(\"progress\", new { done = processed, total = rowCount });",
+  project: "During a bulk data migration in the Vendor Portal the user had no idea how far it had reached. I added a SignalR hub for migration status, and the Hangfire job pushes its progress to that hub — so the page shows a live progress bar instead of the user pressing refresh and guessing.",
+  remember: "Server pushes to the browser. Needs a backplane once you run more than one instance."
 }
 
 ]);

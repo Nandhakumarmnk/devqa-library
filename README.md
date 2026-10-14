@@ -6,7 +6,7 @@ Type a keyword — `solid`, `index`, `useEffect`, `jwt`, `middleware` — and th
 is on screen in a couple of milliseconds. No server, no build step, no API key, no
 internet connection, and nothing to install.
 
-**161 answers** across eight topics, each one written in the same four layers:
+**188 answers** across nine topics, each one written in the same four layers:
 
 | Block | What it gives you |
 |---|---|
@@ -33,8 +33,9 @@ tags rather than `fetch`, specifically so the page works straight from the files
 | Topic | Answers | Covers |
 |---|---|---|
 | C# / .NET | 22 | value vs reference types, async/await, IEnumerable vs IQueryable, generics, disposal, collections |
-| OOP & SOLID | 17 | all five principles with examples, the four pillars, repository, factory, strategy, code review |
-| ASP.NET Core / API | 22 | middleware pipeline, REST design, JWT, DI lifetimes, EF Core performance and migrations, OWASP fixes |
+| OOP & SOLID | 18 | all five principles with examples, the four pillars, repository, factory, strategy, code review |
+| ASP.NET Core / API | 25 | middleware pipeline, REST design, JWT, claims, DI lifetimes, EF Core, SignalR, OWASP fixes |
+| ADO.NET | 23 | connected vs disconnected, the Execute methods, stored procedures, transactions, SqlBulkCopy, DBNull, connection pooling |
 | SQL Server | 24 | indexing, query tuning, joins, window functions, transactions, deadlocks, paging, parameter sniffing |
 | JavaScript & jQuery | 21 | closures, `this`, promises, event delegation, `==` vs `===`, debounce, array methods |
 | React.js | 21 | hooks, props vs state, keys, controlled forms, memoisation, routing, reusable component design |
@@ -43,25 +44,32 @@ tags rather than `fetch`, specifically so the page works straight from the files
 
 ## Features
 
-- **Instant keyword search** with typo tolerance (`solit`, `indx`, `middlware` all resolve)
-  and developer shorthand (`sp`, `di`, `oops`, `n+1`, `cte`, `asnotracking`)
+- **Instant keyword search** with real typo tolerance — `stord procedur`, `dedlock`,
+  `dependancy injection` and `polymorfism` all resolve, and the answer tells you which
+  word it searched for instead
+- **Describe the problem, not the term** — "the click event stops working after the grid
+  refreshes" finds event delegation; "timeout expired obtaining a connection from the pool"
+  finds the disposal answer. The phrases live in `data/qa-problems.js`
+- **Developer shorthand** — `sp`, `di`, `oops`, `n+1`, `cte`, `asnotracking`
 - **Autocomplete** as you type, with topic badges
 - **Topic filter** in the sidebar and the dropdown
 - **Browse mode** showing every question as cards
 - **Mark as learned** with a progress counter, stored in your browser
 - **Copy answer** to the clipboard as plain text
 - **Dark and light themes**, following your system setting by default
-- `/` focuses the search box; `index.html#q=solid` deep-links to an answer
+- `/` focuses the search box, `Ctrl+B` hides or shows the sidebar; `index.html#q=solid` deep-links to an answer
 
 ## How the search works
 
 There is no model and no API call. On load, every answer is indexed by its title
 tokens, curated tags and body text. A query is normalised, expanded through a
 synonym map, and scored against that index — exact tag match ranks highest, then
-phrase match in the title, then token and prefix matches, with a one-character edit
-distance as a fallback for typos.
+phrase match in the title, then token and prefix matches. Misspellings fall back to a
+bounded Damerau-Levenshtein distance (how far wrong a word may be scales with its
+length), and a described symptom is matched by how much of a known problem phrase it
+covers. There is always a best answer — the page never dead-ends on "no results".
 
-Searching all 161 answers takes about 1.5 ms, which the footer reports live.
+Searching all 188 answers takes about 2 ms, which the footer reports live.
 
 ## Add your own questions
 
@@ -70,7 +78,7 @@ Open any file in `data/` and append an object:
 ```js
 {
   id: "sql-my-new-one",            // unique
-  topic: "sql",                    // csharp solid aspnet sql jquery react azure microservices
+  topic: "sql",                    // csharp solid aspnet adonet sql jquery react azure microservices
   star: true,                      // optional — features it on the home screen
   q: "The question as an interviewer would ask it",
   tags: ["keyword", "short form", "another phrasing"],
