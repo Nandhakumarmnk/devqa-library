@@ -16,6 +16,8 @@
     react:         { name: 'React.js',         color: '#38bdf8' },
     azure:         { name: 'Azure & Functions', color: '#0ea5e9' },
     microservices: { name: 'Microservices',    color: '#10a37f' },
+    web:           { name: 'HTML, CSS & TypeScript', color: '#fb923c' },
+    projects:      { name: 'My Projects',       color: '#e11d48' },
     hr:            { name: 'HR & Project Talk', color: '#ec4899' }
   };
 
