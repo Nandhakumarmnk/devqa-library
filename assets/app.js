@@ -539,7 +539,7 @@
       busy = false;
       loading.scrollIntoView({ behavior: 'smooth', block: 'start' });
       setTimeout(syncJump, 400);
-    }, 260);
+    }, 140);
   }
 
   /* ---------- reveal the answer a block at a time ----------
@@ -570,7 +570,7 @@
     });
 
     blocks[0].appendChild(caret);
-    var step = Math.min(70, Math.max(28, 420 / blocks.length));
+    var step = Math.min(42, Math.max(16, 260 / blocks.length));
 
     blocks.forEach(function (b, i) {
       if (i === 0) return;
@@ -579,7 +579,7 @@
         b.classList.add('stream-in');
         if (caret.parentNode) b.appendChild(caret);
         if (i === blocks.length - 1) {
-          streamTimers.push(setTimeout(function () { if (caret.parentNode) caret.remove(); }, 220));
+          streamTimers.push(setTimeout(function () { if (caret.parentNode) caret.remove(); }, 150));
         }
       }, i * step));
     });

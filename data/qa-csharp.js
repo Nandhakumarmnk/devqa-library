@@ -267,6 +267,145 @@ window.QA = (window.QA || []).concat([
   code: "// deadlocks under a synchronisation context, wastes a thread everywhere\nvar vendor = _repo.GetAsync(id).Result;\n\n// correct - async all the way up\nvar vendor = await _repo.GetAsync(id);\n\n// library code that must not capture the context\nvar data = await _http.GetAsync(url).ConfigureAwait(false);",
   project: "This is one of the things I look for in code review, because it is easy to introduce when someone makes an existing synchronous method call a new async one. The Vendor Portal endpoints are async end to end — controller, service and EF Core — specifically so no layer is tempted to block.",
   remember: "Blocks the thread, deadlocks under a sync context, and hides the exception. Async all the way up."
+},
+
+{
+  id: "cs-access", topic: "csharp", star: true,
+  q: "What are the access modifiers in C#?",
+  tags: ["access modifiers", "public private protected internal", "protected internal", "private protected", "encapsulation modifiers"],
+  simple: "They control who can see a member. public = everyone, private = only this class, protected = this class and its children, internal = anything in this assembly.",
+  answer: "- **public** — visible everywhere.\n- **private** — only inside the same class. The **default** for class members, and the one to start from.\n- **protected** — this class and anything deriving from it.\n- **internal** — anywhere in the same assembly. The default for a top-level class.\n- **protected internal** — protected **OR** internal: derived classes anywhere, plus anything in this assembly.\n- **private protected** — protected **AND** internal: derived classes, but only those in this assembly.\n- **file** (C# 11) — visible only within the same file; mostly for source generators.\nThe rule I follow is to start private and widen only when something genuinely needs it. A public field is almost always wrong — expose a property so you keep the option of validating or changing the implementation later.\nFor a library, `internal` plus `InternalsVisibleTo` is how you expose something to your own test project without making it part of the public API.",
+  code: "public class Vendor\n{\n    private  readonly List<string> _audit = new();   // nobody outside\n    protected string Code { get; set; }              // this class + children\n    internal  bool IsDirty { get; set; }              // this assembly\n    public    string Name { get; set; }               // everyone\n}",
+  project: "In the document engine the base class exposes `protected` members for the derived document types and keeps its audit list private, so a document type can extend behaviour without being able to corrupt the audit trail. Injected dependencies are always `private readonly` — nothing outside the class can reassign them.",
+  remember: "Start private, widen only when needed. Members default to private, top-level classes to internal."
+},
+
+{
+  id: "cs-ref-out", topic: "csharp", star: true,
+  q: "ref, out, in, params and optional parameters",
+  tags: ["ref vs out", "out parameter", "in parameter", "params keyword", "optional parameters", "named arguments", "pass by reference"],
+  simple: "ref passes a variable itself rather than a copy, and it must already have a value. out is the same but the method must assign it. params lets you pass any number of arguments. Optional parameters have a default so the caller can skip them.",
+  answer: "- **ref** — passes the variable by reference; it must be initialised **before** the call, and the method may or may not change it.\n- **out** — also by reference, but the caller does **not** need to initialise it and the method **must** assign it before returning. The classic use is `TryParse` and `TryGetValue`, where you want a result plus a success flag.\n- **in** — by reference but **read-only**. Used to avoid copying a large struct without allowing changes.\n- **params** — a variable number of arguments; must be the last parameter, and there can be only one.\n- **Optional parameters** — a default value in the signature. The caveat worth knowing: the default is baked into the **calling** assembly at compile time, so changing it in a library does not affect callers until they recompile. For a public API an overload is safer.\n- **Named arguments** — pass by name to skip optionals or make a call readable: `Save(id: 7, notify: false)`.\nSince C# 7 you can declare an out variable inline, which is how everyone writes TryParse now.",
+  code: "if (int.TryParse(text, out var qty))      // out, declared inline\n    Use(qty);\n\nvoid Swap(ref int a, ref int b) => (a, b) = (b, a);\n\ndecimal Total(params decimal[] amounts) => amounts.Sum();\nTotal(10m, 20m, 30m);\n\nTask SaveAsync(int id, bool notify = true, CancellationToken ct = default);\nawait SaveAsync(7, notify: false);        // named argument",
+  project: "The pattern that appears most in our code is `TryGetValue` and `TryParse` with `out` — particularly in the Excel bulk upload parser, where a cell that will not convert has to become a row-level validation message rather than an exception that kills the whole file.",
+  remember: "ref needs a value going in, out must be set coming back, in is read-only, params is variable count."
+},
+
+{
+  id: "cs-var-dynamic", topic: "csharp",
+  q: "var vs dynamic vs object",
+  tags: ["var vs dynamic", "dynamic keyword", "implicitly typed", "object type", "late binding"],
+  simple: "var is still strongly typed — the compiler works out the type for you. dynamic skips type checking until the code runs. object is the base type everything inherits from, and you must cast it back.",
+  answer: "- **var** — compile-time inference. `var x = 5;` *is* an `int`, and assigning a string to it later will not compile. It is a typing convenience, not a type. It must be initialised on the same line, and it cannot be a field or a parameter.\n- **dynamic** — type resolution is deferred to runtime. The compiler accepts any member call; if it does not exist you get a `RuntimeBinderException` when the line executes. No IntelliSense, slower, and errors surface in front of a user.\n- **object** — the root of every type. You can hold anything but you must cast it back, value types get boxed, and the compiler will not let you call members that are not on object.\nMy position: `var` freely when the type is obvious from the right-hand side, and spelled-out types when it is not (`var result = Process();` tells the reader nothing). `dynamic` only for genuine interop — COM, or a loosely shaped JSON payload — and even there I prefer deserialising into a real class.",
+  code: "var list = new List<Vendor>();     // compile-time List<Vendor>\n\ndynamic d = GetPayload();\nd.AnyMethodAtAll();                // compiles; may explode at runtime\n\nobject o = 42;                     // boxed\nint back = (int)o;                 // needs a cast",
+  remember: "var = compiler infers, still static. dynamic = checked at runtime. object = cast it back."
+},
+
+{
+  id: "cs-enum", topic: "csharp",
+  q: "What are enums, and what is [Flags]?",
+  tags: ["enum", "flags enum", "enum vs const", "bitwise enum", "enum parse"],
+  simple: "An enum is a named set of fixed values — Status.Open, Status.Approved — instead of loose numbers or strings scattered through the code. [Flags] lets one value hold a combination.",
+  answer: "An enum is a value type backed by `int` by default (changeable to `byte`, `long` and so on). It gives you readable, compile-checked constants and makes a `switch` exhaustive-looking.\nThings worth knowing:\n- The default value is **0**, so always define a sensible zero member (`None`, `Unknown`); an uninitialised enum is 0 whether or not that member exists.\n- An enum is **not** validated on cast — `(Status)99` compiles and runs. Use `Enum.IsDefined` when the value came from outside.\n- `Enum.Parse`/`TryParse` convert from a string; `.ToString()` goes back.\n- **[Flags]** marks it as a bit field: give members powers of two so they can be combined with `|` and tested with `HasFlag`.\n**Storing them**: persisting the `int` is compact but renumbering later silently corrupts history, so for anything long-lived I store the string or keep the numbers frozen with explicit values.",
+  code: "public enum PoStatus { None = 0, Draft = 1, Submitted = 2, Approved = 3 }\n\n[Flags]\npublic enum Permissions { None = 0, Read = 1, Write = 2, Approve = 4, Export = 8 }\n\nvar p = Permissions.Read | Permissions.Approve;\nif (p.HasFlag(Permissions.Approve)) { ... }",
+  project: "Document and purchase-order statuses are enums in code with explicit values that never get renumbered, because the database holds history against them. The permission side is closer to the Flags idea — a role carries a combination rather than a single value.",
+  remember: "Always define 0. Casts are not validated. [Flags] needs powers of two."
+},
+
+{
+  id: "cs-yield", topic: "csharp",
+  q: "What does yield return do?",
+  tags: ["yield return", "iterator", "ienumerable yield", "lazy enumeration", "generator"],
+  simple: "yield return hands back one item at a time without building the whole list first. The method pauses where it is and continues from there on the next item.",
+  answer: "`yield return` makes a method an **iterator**. The compiler turns it into a state machine: nothing runs until you enumerate it, and each `MoveNext()` executes up to the next `yield return` and pauses.\nWhy it is useful:\n- **Memory** — stream a million rows without materialising a million-item list.\n- **Laziness** — combined with `Take(10)`, only ten items are ever produced.\n- **Readability** — filtering or transforming in a loop without building a temporary list.\n`yield break` ends the sequence early.\nThe traps: because it is deferred, an exception in the method surfaces when the caller enumerates, not when it is called — so argument validation belongs in a wrapper method that calls the iterator. And you cannot `yield` inside a try/catch that has a catch block.\nIf you need the results more than once, materialise with `ToList()` — otherwise you re-run the whole thing each time you enumerate.",
+  code: "public static IEnumerable<string> ReadLines(string path)\n{\n    using var r = new StreamReader(path);\n    string line;\n    while ((line = r.ReadLine()) != null)\n    {\n        if (line.Length == 0) continue;\n        yield return line;              // one at a time, file stays open\n    }\n}\n\nforeach (var l in ReadLines(p).Take(10)) { }   // reads 10 lines, not the file",
+  project: "The bulk-upload parser streams rows this way rather than loading an entire file into a list first — on a large Excel upload that is the difference between a steady memory profile and a spike.",
+  remember: "Produces one item at a time, lazily. Validate arguments in a wrapper, because nothing runs until enumeration."
+},
+
+{
+  id: "cs-equals", topic: "csharp", star: true,
+  q: "Equals vs == vs ReferenceEquals, and why override GetHashCode?",
+  tags: ["equals vs ==", "gethashcode", "referenceequals", "value equality", "override equals", "object equality"],
+  simple: "== compares references for classes and values for structs and strings. Equals can be overridden to mean value equality. If you override Equals you must override GetHashCode, or dictionaries and sets will misbehave.",
+  answer: "- **==** is an operator resolved at compile time. For reference types it compares references unless the type overloads it — `string` does, which is why two identical strings compare equal.\n- **Equals(object)** is a virtual method, so it is resolved at runtime and can be overridden to mean value equality. `record` types do this for you.\n- **ReferenceEquals** always compares identity, whatever anyone overloaded.\n**Why GetHashCode matters**: `Dictionary` and `HashSet` find a bucket using the hash code, and only then compare with Equals. If two objects are Equal but return different hash codes they land in different buckets, and the dictionary will insist your key is not there even though an equal key is. That is a genuinely confusing bug.\nThe contract: equal objects **must** return the same hash code; different objects *may* collide. And the hash must be stable — never build it from a mutable property, because mutating a key after inserting it makes the entry unreachable.\nIn modern C# the easy answer is to use a `record`, or implement `IEquatable<T>` and use `HashCode.Combine`.",
+  code: "public class Vendor : IEquatable<Vendor>\n{\n    public string Code { get; init; }                       // immutable key\n    public bool Equals(Vendor other) => other is not null && Code == other.Code;\n    public override bool Equals(object o) => Equals(o as Vendor);\n    public override int GetHashCode() => HashCode.Combine(Code);\n}\n\n// or just:\npublic record VendorDto(string Code, string Name);          // value equality for free",
+  remember: "Override Equals, override GetHashCode. Hash from an immutable field, or use a record."
+},
+
+{
+  id: "cs-pattern-matching", topic: "csharp",
+  q: "Pattern matching and switch expressions",
+  tags: ["pattern matching", "switch expression", "is pattern", "when clause", "property pattern", "modern c#"],
+  simple: "Pattern matching lets you test a value's shape and pull data out of it in one step. A switch expression is a switch that returns a value instead of running statements.",
+  answer: "The forms I actually use:\n- **Type pattern** — `if (o is Vendor v)` tests and assigns in one line, replacing the old `as` plus null-check.\n- **switch expression** — `=>` arms that produce a value, with `_` as the default. Much tighter than a statement switch full of returns.\n- **Property patterns** — `{ Status: \"OPEN\", Total: > 10000 }` matches on the shape of an object.\n- **Relational and logical patterns** — `> 100`, `is not null`, `is 1 or 2`.\n- **Tuple patterns** — switch on more than one value at once.\n- **List patterns** (C# 11) — match the shape of a collection.\nThe compiler warns on a non-exhaustive switch expression, which catches the enum member somebody added and forgot to handle.\nThe caution: a switch expression that grows ten arms with nested conditions has become business logic in disguise — at that point it probably wants to be polymorphism, which is the Open/Closed argument.",
+  code: "var band = po switch\n{\n    { Status: \"DRAFT\" }               => \"Not submitted\",\n    { Total: > 1_000_000 }            => \"Board approval\",\n    { Total: > 100_000, IsUrgent: true } => \"Director, expedited\",\n    null                              => throw new ArgumentNullException(nameof(po)),\n    _                                 => \"Manager\"\n};\n\nif (doc is Invoice inv && inv.Total > 0) Post(inv);   // test and assign",
+  remember: "is-pattern tests and assigns. switch expressions return a value and warn when not exhaustive."
+},
+
+{
+  id: "cs-tuples", topic: "csharp",
+  q: "Tuples and deconstruction",
+  tags: ["tuple", "valuetuple", "deconstruct", "return two values", "named tuple"],
+  simple: "A tuple lets a method return more than one value without defining a class for it. Deconstruction unpacks it straight into variables.",
+  answer: "`ValueTuple` (the `(int, string)` syntax from C# 7) is a **struct**, so it avoids the allocation the old `Tuple<T>` class had, and the elements can be **named**: `(bool ok, string error)`.\nWhere it fits: a private or internal method that genuinely returns two related values — a result plus a reason, a min plus a max. It saves inventing a type nobody else needs.\nWhere it does not: a **public API contract**. Tuple element names are compiler sugar and are not part of the runtime type, so a DTO or a record communicates intent far better to a caller. If the two values have meaning together, they want to be a type.\n**Deconstruction** unpacks a tuple — or any type with a `Deconstruct` method — into separate variables, and the same syntax gives you the tuple swap with no temporary variable.",
+  code: "private (bool ok, string error) Validate(VendorDto d)\n{\n    if (string.IsNullOrWhiteSpace(d.Gstin)) return (false, \"GSTIN required\");\n    return (true, null);\n}\n\nvar (ok, error) = Validate(dto);          // deconstructed\nif (!ok) return BadRequest(error);\n\n(a, b) = (b, a);                          // swap, no temp",
+  remember: "Great for an internal two-value return, wrong for a public contract. Deconstruct with var (x, y) = ..."
+},
+
+{
+  id: "cs-reflection", topic: "csharp",
+  q: "What is reflection, and what are attributes?",
+  tags: ["reflection", "attributes", "custom attribute", "gettype", "metadata", "activator createinstance"],
+  simple: "Reflection lets code inspect types at runtime — list properties, read attributes, create an object from a type name. Attributes are metadata you stick on a class or member for something else to read.",
+  answer: "**Reflection** reads type metadata at runtime: `GetType()`, `GetProperties()`, `GetMethods()`, `Activator.CreateInstance`, and invoking a method by name.\n**Attributes** are declarative metadata — `[Required]`, `[Authorize]`, `[Serializable]`, or your own deriving from `Attribute`. On their own they do nothing; something reads them with reflection and acts.\nTogether they are what makes the frameworks you use every day work: model binding and validation read attributes off your DTO, ASP.NET routing finds controllers and actions, DI scans for registrations, and serializers walk your properties.\n**The honest caveat**: reflection is slow relative to direct calls, it defeats compile-time checking (a renamed property breaks a string-based lookup at runtime), and it can be trimmed away by AOT publishing. So I use it for genuinely generic infrastructure — mapping, a plugin loader, reading an attribute once at startup and caching the result — not inside a hot loop.",
+  code: "// a custom attribute, plus reflection that reads it\n[AttributeUsage(AttributeTargets.Property)]\npublic class ExcelColumnAttribute : Attribute\n{\n    public string Name { get; }\n    public ExcelColumnAttribute(string name) => Name = name;\n}\n\npublic class VendorRow { [ExcelColumn(\"Vendor Code\")] public string Code { get; set; } }\n\nforeach (var p in typeof(VendorRow).GetProperties())\n{\n    var col = p.GetCustomAttribute<ExcelColumnAttribute>();\n    if (col != null) map[col.Name] = p;        // built once, then cached\n}",
+  project: "The Excel bulk upload mapper is exactly this shape — the column-to-property map is built from attributes once and cached, so the reflection cost is paid at startup rather than per row. That caching is the difference between a neat design and a slow one.",
+  remember: "Attributes are metadata; reflection reads them. Build the map once and cache it."
+},
+
+{
+  id: "cs-json", topic: "csharp", star: true,
+  q: "How do you serialize JSON in .NET?",
+  tags: ["json serialization", "system.text.json", "newtonsoft", "jsonserializer", "camelcase json", "deserialize"],
+  simple: "System.Text.Json is the built-in one and the default for ASP.NET Core. Newtonsoft (Json.NET) is the older library, slower but more forgiving and more featureful.",
+  answer: "**System.Text.Json** — built in, fast, low allocation, and what ASP.NET Core uses by default. It is **case-insensitive on read only if you ask**, and serialises camelCase by default in ASP.NET Core via the web defaults.\n**Newtonsoft.Json** — more permissive and more configurable: `TypeNameHandling`, custom contract resolvers, more lenient parsing of odd payloads. Projects on it usually stay on it.\nThings that actually bite:\n- **Property naming** — the API sends camelCase and C# is PascalCase; configure the naming policy rather than renaming your properties.\n- **Circular references** — serialising EF entities with navigation properties loops. Another reason to return DTOs rather than entities.\n- **Dates** — ISO 8601 by default; be explicit about UTC.\n- **Ignoring members** — `[JsonIgnore]` for things that must never go on the wire.\n- **Nulls** — decide whether to omit them, because the client contract depends on it.",
+  code: "var opts = new JsonSerializerOptions\n{\n    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,\n    PropertyNameCaseInsensitive = true,\n    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull\n};\n\nvar json = JsonSerializer.Serialize(dto, opts);\nvar back = JsonSerializer.Deserialize<VendorDto>(json, opts);",
+  project: "The React front end and the .NET API agree on camelCase, and the API returns DTOs rather than EF entities — which avoids both the circular-reference problem and leaking internal columns into the payload.",
+  remember: "System.Text.Json by default. Watch camelCase, circular references from entities, and date handling."
+},
+
+{
+  id: "cs-cancellation", topic: "csharp",
+  q: "What is a CancellationToken and when do you use one?",
+  tags: ["cancellation token", "cancellationtoken", "cancel async operation", "cancellationtokensource", "operationcanceledexception", "request aborted"],
+  simple: "A CancellationToken is a signal that says stop. The caller can cancel, and well-behaved async code checks the token and gives up instead of finishing work nobody wants.",
+  answer: "`CancellationTokenSource` produces the token and triggers the cancellation; the token is passed down through the call chain. Cancellation is **cooperative** — nothing is killed, the work has to check.\nHow to honour it: pass the token into every async call that accepts one (`ToListAsync(ct)`, `ExecuteReaderAsync(ct)`, `HttpClient` calls), and inside a long loop call `ct.ThrowIfCancellationRequested()`.\nWhere it matters most in a web app: **`HttpContext.RequestAborted`**. When a user closes the tab or navigates away during a slow report, that token fires — and if you pass it down, SQL Server stops working on a query whose result nobody will ever see. On a busy server that is real capacity recovered.\nIt also gives you timeouts: `new CancellationTokenSource(TimeSpan.FromSeconds(30))`.\n**Handling**: catch `OperationCanceledException` and treat it as *not an error* — do not log it as a failure, because a user navigating away is normal.",
+  code: "[HttpGet]\npublic async Task<IActionResult> Search([FromQuery] Filter f, CancellationToken ct)\n{\n    var rows = await _db.PurchaseOrders\n        .Where(p => p.VendorId == f.VendorId)\n        .ToListAsync(ct);          // abandoned request stops the query too\n    return Ok(rows);\n}",
+  project: "The React screens abort in-flight requests on unmount with an AbortController, which arrives at the API as a cancelled request. Passing the token down to EF Core is what makes that saving real rather than cosmetic — the database stops working on the query as well.",
+  remember: "Cooperative: pass it down and check it. RequestAborted stops work for a user who already left."
+},
+
+{
+  id: "cs-collection-interfaces", topic: "csharp",
+  q: "IEnumerable vs ICollection vs IList vs IReadOnlyList",
+  tags: ["ienumerable vs ilist", "icollection", "ireadonlylist", "collection interfaces", "which interface to return"],
+  simple: "They are a ladder of capability. IEnumerable just lets you walk the items. ICollection adds Count and Add/Remove. IList adds indexing. IReadOnly versions give access without mutation.",
+  answer: "- **IEnumerable&lt;T&gt;** — iterate, nothing else. No Count, no index. Can be lazy, so enumerating twice may do the work twice.\n- **ICollection&lt;T&gt;** — adds `Count`, `Add`, `Remove`, `Contains`. It is materialised, so Count is cheap.\n- **IList&lt;T&gt;** — adds indexing and ordering (`this[i]`, `Insert`, `IndexOf`).\n- **IReadOnlyCollection&lt;T&gt;** / **IReadOnlyList&lt;T&gt;** — Count, and indexing for the list version, with no mutation methods.\n**The rule I use**: accept the *least* capable type that does the job (take `IEnumerable<T>` as a parameter) and return the *most useful honest* one. For a method that has already materialised its results, returning `IReadOnlyList<T>` tells the caller it is safe to count and index, and that they must not modify it. Returning `List<T>` hands out a mutable reference to your internal state.\nThe practical trap: taking `IEnumerable<T>` and calling `.Count()` then enumerating again can execute a deferred query twice. Materialise once with `ToList()` if you need both.",
+  code: "// accept the least, return the most useful honest type\npublic IReadOnlyList<VendorDto> Search(IEnumerable<string> codes)\n{\n    var set = new HashSet<string>(codes);\n    return _db.Vendors.Where(v => set.Contains(v.Code))\n                      .Select(Map).ToList();\n}",
+  project: "Repository methods return `IReadOnlyList<T>` for materialised results and `IQueryable<T>` only where the caller is meant to compose further — that distinction is what stops a caller accidentally filtering in memory after the data has already been fetched.",
+  remember: "Accept IEnumerable, return IReadOnlyList. Never hand out your internal List."
+},
+
+{
+  id: "cs-datetime", topic: "csharp", star: true,
+  q: "DateTime vs DateTimeOffset, and handling time zones",
+  tags: ["datetime", "datetimeoffset", "utc", "timezone", "datetime.now vs utcnow", "date handling"],
+  simple: "DateTime does not know what time zone it is in. DateTimeOffset carries the offset from UTC with it. Store UTC, display local — and never use DateTime.Now on a server.",
+  answer: "`DateTime` has a `Kind` (Utc, Local or **Unspecified**), and Unspecified is the default — which means most DateTime values in a system carry no zone information at all. That is where the bugs come from.\n`DateTimeOffset` stores the point in time **plus** its offset from UTC, so it is unambiguous. It is the better default for anything timestamped.\n**The rules I follow:**\n- **`DateTime.UtcNow` on the server, never `DateTime.Now`.** `Now` gives the server's local time, which breaks the moment the server moves, the hosting region changes, or daylight saving shifts.\n- **Store UTC**, convert to the user's zone for display only.\n- Use `TimeZoneInfo.ConvertTimeFromUtc` with an IANA/Windows zone id — never a fixed `AddHours(5.5)`, which is wrong for any zone with daylight saving.\n- SQL Server: `datetime2` over the old `datetime` (better range and precision), or `datetimeoffset` when you need the offset.\n- A **date of birth** is a date, not an instant — do not time-zone-convert it. `DateOnly` and `TimeOnly` (.NET 6+) exist for exactly that.\n**And daylight saving**: some local times do not exist and some happen twice. If you schedule anything, schedule it in UTC.",
+  code: "var createdOn = DateTimeOffset.UtcNow;          // unambiguous\n\n// display in the user's zone\nvar tz = TimeZoneInfo.FindSystemTimeZoneById(\"India Standard Time\");\nvar local = TimeZoneInfo.ConvertTime(createdOn, tz);\n\n// a birthday is a date, not an instant\npublic DateOnly DateOfBirth { get; set; }",
+  project: "Document and audit timestamps are the place this matters for us — a document posted at a boundary has to have one unambiguous time whichever server or user is looking at it. The same rule applies to the Hangfire schedules: scheduled in UTC, because a CRON in local time shifts twice a year.",
+  remember: "UtcNow on the server, store UTC, convert for display. DateTimeOffset when the offset matters."
 }
 
 ]);

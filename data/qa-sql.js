@@ -311,6 +311,104 @@ window.QA = (window.QA || []).concat([
   code: "-- the habit to break\nSELECT COUNT(*) FROM PurchaseOrder WITH (NOLOCK);\n\n-- the fix, once, at database level\nALTER DATABASE Procurement SET READ_COMMITTED_SNAPSHOT ON;",
   project: "This comes up when someone hits blocking on a busy screen and reaches for the quick fix. On the procurement modules the real causes were long transactions and scans caused by missing indexes — tightening those removed the blocking properly, which is the fix NOLOCK only pretends to be.",
   remember: "NOLOCK = dirty reads, plus rows read twice or skipped. Use READ COMMITTED SNAPSHOT, and fix the real query."
+},
+
+{
+  id: "sql-datatypes", topic: "sql", star: true,
+  q: "SQL Server data types — varchar vs nvarchar, decimal vs float",
+  tags: ["data types", "varchar vs nvarchar", "char vs varchar", "decimal vs float", "datetime2", "sql data type choice"],
+  simple: "varchar is one byte per character, nvarchar is two and stores any language. decimal is exact and is what money needs; float is approximate and will give you rounding errors on money.",
+  answer: "- **char(n)** fixed width, padded — only for genuinely fixed codes. **varchar(n)** variable width. **nvarchar(n)** Unicode, two bytes per character.\n- **varchar vs nvarchar** is a real decision: nvarchar doubles the storage and halves how many rows fit on a page, which means more I/O. But anything facing users, or holding names and addresses, should be nvarchar. Codes and identifiers can be varchar.\n- **The invisible killer**: comparing a varchar column to an nvarchar parameter causes an **implicit conversion** and can stop the index being used. ADO.NET sends strings as nvarchar by default, so a varchar column plus `AddWithValue` is exactly how a seek quietly becomes a scan.\n- **decimal(p,s)** is exact — use it for money, quantity and anything that gets summed or compared. **float/real** are approximate binary types: `0.1 + 0.2 != 0.3`, and totals will not reconcile.\n- **datetime2** over the old `datetime` — wider range, better precision, same or less storage. `date` when there is no time.\n- **bit** for flags, **uniqueidentifier** for GUIDs (never as a clustered key — random GUIDs fragment the index).\n- Avoid `(max)` types unless genuinely needed; they are stored off-row and cannot be indexed normally.\n- And size things honestly: `nvarchar(max)` for a 50-character code wastes memory grants on every query that touches it.",
+  code: "-- exact, for anything financial\nTotalAmount  DECIMAL(18,2)   NOT NULL,\n-- Unicode for anything a human typed\nVendorName   NVARCHAR(200)   NOT NULL,\n-- ASCII code, matched with an explicit type to avoid conversion\nVendorCode   VARCHAR(20)     NOT NULL,\nCreatedOn    DATETIME2(3)    NOT NULL",
+  project: "The implicit-conversion trap is one I check for when a query is slower than its plan suggests it should be — it is why the ADO.NET code adds parameters with an explicit `SqlDbType` and size rather than `AddWithValue`. All money columns on the procurement side are `decimal`, because a float total that is out by a paisa is a reconciliation conversation.",
+  remember: "decimal for money, nvarchar for human text, and watch varchar column vs nvarchar parameter."
+},
+
+{
+  id: "sql-null-functions", topic: "sql", star: true,
+  q: "Handling NULL in SQL — ISNULL, COALESCE, NULLIF",
+  tags: ["isnull vs coalesce", "nullif", "is null", "null in sql", "null aggregate", "ansi nulls"],
+  simple: "NULL means unknown, not zero and not empty. Anything compared to NULL is unknown, so you need IS NULL rather than = NULL. ISNULL and COALESCE substitute a value when something is NULL.",
+  answer: "**The rule that catches people**: `WHERE Status = NULL` returns nothing, ever. Unknown compared to anything is unknown, which is not true. Use `IS NULL` / `IS NOT NULL`.\n- **ISNULL(x, y)** — T-SQL only, two arguments, and the return type comes from the **first** argument, which can silently truncate: `ISNULL(varchar(5) col, 'LONG TEXT')` truncates.\n- **COALESCE(a, b, c, …)** — ANSI standard, any number of arguments, returns the first non-null, and the type is the highest-precedence of all of them. My default.\n- **NULLIF(a, b)** — returns NULL when the two are equal. The classic use is `NULLIF(divisor, 0)` to turn a divide-by-zero into NULL rather than an error.\n**Other behaviours worth knowing:**\n- Aggregates **ignore** NULLs — `AVG` divides by the non-null count, and `COUNT(column)` skips them while `COUNT(*)` does not.\n- `NULL + 5` is NULL, and `'abc' + NULL` is NULL — so concatenation needs COALESCE or `CONCAT`, which treats NULL as empty.\n- `GROUP BY` and `DISTINCT` treat all NULLs as **one** group, even though NULL does not equal NULL.\n- `NOT IN` with a NULL in the list returns nothing — use `NOT EXISTS`.\n**Performance note**: wrapping an indexed column in `ISNULL()` makes the predicate non-SARGable, so filter with `IS NULL` or `OR col IS NULL` rather than `ISNULL(col,'') = ''`.",
+  code: "SELECT v.Name,\n       COALESCE(v.Gstin, v.Pan, 'Not provided')      AS TaxId,\n       SUM(p.TotalAmount) / NULLIF(COUNT(p.PoId), 0) AS AvgPo\nFROM   Vendor v\nLEFT JOIN PurchaseOrder p ON p.VendorId = v.VendorId\nWHERE  v.ClosedOn IS NULL          -- not  = NULL\nGROUP  BY v.Name;",
+  project: "Optional master fields — alternate contacts, tax details, bank information — are full of legitimate NULLs, so the reporting procedures lean on COALESCE for display and NULLIF to guard the division in average and ratio calculations.",
+  remember: "IS NULL, never = NULL. COALESCE over ISNULL. NULLIF to dodge divide-by-zero. Aggregates skip NULLs."
+},
+
+{
+  id: "sql-case-pivot", topic: "sql",
+  q: "CASE expressions, PIVOT and conditional aggregation",
+  tags: ["case when", "pivot", "unpivot", "conditional aggregation", "cross tab", "rows to columns"],
+  simple: "CASE is if-then-else inside a query. PIVOT turns rows into columns — the classic monthly-totals-across-the-top report. Conditional aggregation does the same thing with CASE inside SUM, and it is usually easier to read.",
+  answer: "**CASE** works anywhere an expression does — SELECT, WHERE, ORDER BY, even inside an aggregate. Searched form (`CASE WHEN x > 10 THEN ...`) is the flexible one; simple form (`CASE col WHEN 1 THEN ...`) is shorter for equality.\n**PIVOT** rotates rows into columns, but it needs the column list spelled out, so a dynamic set of columns means dynamic SQL.\n**Conditional aggregation** — `SUM(CASE WHEN … THEN 1 ELSE 0 END)` — does the same job in plain SQL, handles several measures at once, and is far easier to read and maintain. It is what I reach for in practice; PIVOT I mainly need to *recognise*.\nTwo cautions: `CASE` in a `WHERE` clause against an indexed column breaks the seek, and a `CASE` in `ORDER BY` can force an expensive sort.",
+  code: "-- conditional aggregation: readable, and more than one measure at a time\nSELECT VendorId,\n       SUM(CASE WHEN Status = 'OPEN'     THEN TotalAmount ELSE 0 END) AS OpenValue,\n       SUM(CASE WHEN Status = 'APPROVED' THEN TotalAmount ELSE 0 END) AS ApprovedValue,\n       COUNT(CASE WHEN Status = 'REJECTED' THEN 1 END)                AS RejectedCount\nFROM   PurchaseOrder\nGROUP  BY VendorId;",
+  project: "The procurement dashboards are built this way — one pass over the table producing several status columns, rather than three separate queries the application then has to stitch together.",
+  remember: "CASE inside SUM beats PIVOT for readability. Dynamic columns mean dynamic SQL."
+},
+
+{
+  id: "sql-cursor", topic: "sql", star: true,
+  q: "What is a cursor, and why avoid it?",
+  tags: ["cursor", "while loop sql", "row by row", "set based vs cursor", "rbar"],
+  simple: "A cursor walks a result set one row at a time, like a foreach inside the database. SQL Server is built to work on sets, so doing it row by row is usually dramatically slower.",
+  answer: "A cursor is declared, opened, fetched from in a loop, closed and deallocated. It is sometimes called **RBAR** — row by agonising row — because each iteration is a separate operation with its own overhead, and the optimiser cannot help you.\n**Set-based is almost always the answer**: a single UPDATE with a JOIN, a MERGE, a window function, or conditional aggregation. A cursor that takes minutes commonly becomes a set-based statement that takes seconds.\n**When a cursor is defensible:**\n- Calling a stored procedure per row, where there is genuinely no set-based equivalent.\n- Administrative scripts — looping over databases or tables.\n- Deliberately batching a huge update to avoid one enormous transaction, though a `WHILE` loop over `TOP (n)` is the better form of that.\nIf you must use one, declare it `LOCAL FAST_FORWARD` (forward-only, read-only) — the default is far heavier than people realise.\n**The reframing that scores**: \"my first instinct when I see a cursor is to ask what set-based statement it is imitating\" — it shows you think in sets, which is the actual skill being tested.",
+  code: "-- cursor thinking\n-- for each row: UPDATE PurchaseOrder SET Status='CLOSED' WHERE PoId=@id\n\n-- set-based: one statement, one plan\nUPDATE p\nSET    p.Status = 'CLOSED'\nFROM   PurchaseOrder p\nJOIN   GoodsReceipt g ON g.PoId = p.PoId\nWHERE  p.Status = 'OPEN' AND g.IsComplete = 1;",
+  project: "Replacing row-by-row processing with set-based statements is part of the same work that cut database round-trips on Smart Documents by around half — the application-side equivalent of a cursor is a loop issuing one query per row, and both have the same fix.",
+  remember: "Cursors are RBAR. Ask what set-based statement it is imitating. LOCAL FAST_FORWARD if you must."
+},
+
+{
+  id: "sql-dynamic", topic: "sql",
+  q: "Dynamic SQL and sp_executesql",
+  tags: ["dynamic sql", "sp_executesql", "exec string sql", "dynamic where clause", "injection in stored procedure"],
+  simple: "Dynamic SQL is SQL built as a string and then executed. It is sometimes necessary, and it is the one place inside a stored procedure where SQL injection is still possible.",
+  answer: "You need it when the **structure** varies — a table or column name chosen at runtime, a PIVOT with unknown columns, or an optional-filter search where you want a tight plan per combination.\n**`EXEC(@sql)` versus `sp_executesql`** is the important distinction:\n- `EXEC` runs a concatenated string. Values glued into it are **injectable**, and every different value produces a different query text, so the plan cache fills with single-use plans.\n- `sp_executesql` takes a **parameter list**, so values stay parameters: safe from injection, and one reusable cached plan.\n**The rule**: structure can be concatenated, values never. And anything concatenated — a column or sort name from the UI — must be validated against a **whitelist** or passed through `QUOTENAME`, never taken raw from the request.\nAlso watch scope: dynamic SQL runs in its own batch, so local variables and `#temp` tables created inside it are not visible outside.\n**The alternative worth mentioning**: for optional search filters, `WHERE (@VendorId IS NULL OR VendorId = @VendorId)` avoids dynamic SQL entirely but can produce one plan that suits no case — `OPTION (RECOMPILE)` fixes that, and is often simpler than building SQL strings.",
+  code: "DECLARE @sql NVARCHAR(MAX) = N'\n  SELECT PoId, PoNumber, TotalAmount\n  FROM   PurchaseOrder\n  WHERE  VendorId = @VendorId';\n\nIF @Status IS NOT NULL\n    SET @sql += N' AND Status = @Status';     -- structure\n\nEXEC sp_executesql @sql,\n     N'@VendorId INT, @Status VARCHAR(20)',   -- values stay parameters\n     @VendorId = @VendorId, @Status = @Status;",
+  project: "Dynamic SQL inside stored procedures was one of the categories I had to review during the security remediation — a procedure can look safe because it takes parameters, while concatenating one of them into an EXEC string underneath. Converting those to `sp_executesql` with a parameter list is the fix.",
+  remember: "Concatenate structure, parameterise values. sp_executesql, not EXEC. Whitelist anything you must concatenate."
+},
+
+{
+  id: "sql-functions", topic: "sql",
+  q: "Common date and string functions (and the SARGable trap)",
+  tags: ["date functions", "datediff", "dateadd", "string functions", "substring", "charindex", "format sql", "eomonth"],
+  simple: "The usual date and string helpers — DATEADD, DATEDIFF, FORMAT, SUBSTRING, CHARINDEX, CONCAT, TRIM. The thing to remember is that wrapping an indexed column in any of them stops the index being used.",
+  answer: "**Dates**: `GETDATE()` / `SYSDATETIME()` (and `GETUTCDATE()` — prefer UTC on a server), `DATEADD`, `DATEDIFF`, `DATEPART`, `EOMONTH`, `CAST(x AS DATE)` to strip time. `FORMAT()` is convenient and genuinely slow at volume — format in the application layer instead.\n**Strings**: `LEN` (ignores trailing spaces) vs `DATALENGTH` (bytes), `SUBSTRING`, `LEFT`/`RIGHT`, `CHARINDEX`, `REPLACE`, `TRIM`/`LTRIM`/`RTRIM`, `CONCAT` (treats NULL as empty, unlike `+`), `STRING_AGG` to join rows into a list, `STRING_SPLIT` to do the reverse.\n**The trap that matters in an interview**: any function wrapped around the **column** makes the predicate non-SARGable, so the index cannot seek. Rewrite as a range on the raw column, and keep the function on the parameter side instead — this is the single most common cause of a slow filter I see.",
+  code: "-- non-SARGable: scans\nWHERE YEAR(CreatedOn) = 2026\nWHERE CONVERT(date, CreatedOn) = '2026-10-15'\nWHERE LEFT(VendorCode, 3) = 'VEN'\n\n-- SARGable: seeks\nWHERE CreatedOn >= '2026-01-01' AND CreatedOn < '2027-01-01'\nWHERE CreatedOn >= @d AND CreatedOn < DATEADD(DAY, 1, @d)\nWHERE VendorCode LIKE 'VEN%'        -- prefix is fine; '%VEN' is not",
+  project: "A date function applied to an indexed column was one of the three recurring causes behind the slow procurement screens, along with SELECT * and missing covering indexes. Rewriting those filters as date ranges is a mechanical change with a large payoff.",
+  remember: "Function on the column kills the seek. Keep the column bare and move the function to the parameter."
+},
+
+{
+  id: "sql-distinct-group", topic: "sql",
+  q: "DISTINCT vs GROUP BY — what is the difference?",
+  tags: ["distinct vs group by", "distinct", "group by", "remove duplicates query", "select distinct"],
+  simple: "Both remove duplicates. GROUP BY can also aggregate — count, sum, average per group. If you are not aggregating, they usually produce the same plan.",
+  answer: "`SELECT DISTINCT a, b` and `SELECT a, b … GROUP BY a, b` return the same rows, and SQL Server typically produces the same plan (a hash or stream aggregate) for both. Neither is inherently faster.\n**Use GROUP BY** when you need an aggregate per group, or a `HAVING` filter on that aggregate.\n**Use DISTINCT** when you simply want unique rows and no aggregation — it reads more clearly.\n**What matters more than the choice**: DISTINCT often indicates a **join that is multiplying rows**. Someone joins a one-to-many, gets duplicates, and bolts DISTINCT on the front. That hides the problem and pays a sort or hash over the whole inflated set. The right fix is usually `EXISTS` or a pre-aggregated subquery, so the duplicates are never produced.\nAlso worth knowing: `COUNT(DISTINCT col)` is more expensive than `COUNT(*)`, and DISTINCT treats all NULLs as one value.",
+  code: "-- DISTINCT papering over a fan-out\nSELECT DISTINCT v.VendorId, v.Name\nFROM Vendor v JOIN PurchaseOrder p ON p.VendorId = v.VendorId;\n\n-- the honest version: no duplicates to remove\nSELECT v.VendorId, v.Name\nFROM Vendor v\nWHERE EXISTS (SELECT 1 FROM PurchaseOrder p WHERE p.VendorId = v.VendorId);",
+  remember: "Same result, same plan. A DISTINCT you did not plan usually means a join is fanning out."
+},
+
+{
+  id: "sql-identity", topic: "sql",
+  q: "IDENTITY vs SEQUENCE vs GUID for primary keys",
+  tags: ["identity", "sequence", "guid primary key", "newid vs newsequentialid", "auto increment", "surrogate key"],
+  simple: "IDENTITY auto-numbers a column in one table. SEQUENCE is a separate number generator several tables can share. GUIDs are globally unique but make a terrible clustered key.",
+  answer: "- **IDENTITY** — belongs to the column. Simple, and the common default. Get the new value with `SCOPE_IDENTITY()` — **not** `@@IDENTITY`, which returns the last identity from any scope including a trigger, which is a classic bug. Gaps are normal after rollbacks and restarts, so never present it as a gapless document number.\n- **SEQUENCE** — a standalone object. You can get a value **before** inserting, share one sequence across several tables, control increment and cycling, and cache for throughput. Better when the number has business meaning or must be allocated up front.\n- **GUID / uniqueidentifier** — globally unique, so IDs can be generated by the client or merged from multiple systems without collision. The cost: 16 bytes, carried into every non-clustered index, and `NEWID()` is random, which fragments a clustered index badly and causes page splits. If you need a GUID, make it a non-clustered unique column with an identity as the clustered key, or use `NEWSEQUENTIALID()`.\n**And business document numbers are a separate problem**: if finance needs an unbroken PO number sequence, neither identity nor sequence guarantees that under rollbacks — that needs its own allocation table with a transaction.",
+  code: "PoId      INT IDENTITY(1,1) PRIMARY KEY,         -- surrogate, clustered\nPublicId  UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),  -- exposed externally\n\nCREATE SEQUENCE dbo.DocNumber AS INT START WITH 1000 INCREMENT BY 1;\nSELECT NEXT VALUE FOR dbo.DocNumber;        -- a number before the insert\n\nSELECT SCOPE_IDENTITY();                    -- not @@IDENTITY",
+  project: "Our tables use identity surrogate keys clustered on the id, which keeps inserts sequential and the index unfragmented. Business-facing document numbers are generated separately, because a visible number with gaps in it is a question from finance every month.",
+  remember: "IDENTITY per column, SEQUENCE to share or pre-allocate, GUID never as a random clustered key. SCOPE_IDENTITY()."
+},
+
+{
+  id: "sql-maintenance", topic: "sql",
+  q: "Statistics, fragmentation and index maintenance",
+  tags: ["statistics", "update statistics", "index fragmentation", "rebuild vs reorganize", "index maintenance", "stale statistics"],
+  simple: "Statistics tell the optimiser how many rows to expect. When they go stale it picks a bad plan. Fragmentation is the index pages getting out of order, which makes scans read more pages than they should.",
+  answer: "**Statistics** are the histogram of a column's data distribution; the optimiser uses them to estimate row counts. When they are stale the estimate is wrong, and the plan is built for the wrong size of data — the symptom is a plan with a huge gap between estimated and actual rows. Auto-update is on by default but is triggered by a **proportion** of rows changing, so on a very large table it can lag badly. `UPDATE STATISTICS` or a maintenance job fixes it, and on a big table a stats update alone often resolves a sudden slowdown.\n**Fragmentation** comes from page splits as rows are inserted and updated:\n- Under ~10% — leave it.\n- 10–30% — `REORGANIZE`: online, lighter, defragments the leaf level.\n- Over 30% — `REBUILD`: rebuilds the index and **updates statistics with a full scan** as a side effect. Offline by default; `ONLINE = ON` needs the right edition.\n**What I would actually say in an interview**: on a modern instance with fast storage, fragmentation matters less than people think, and stale statistics matter more. If a query that was fine yesterday is slow today and nothing was deployed, statistics are my first suspicion — before I start adding indexes.\nAlso worth naming: `FILLFACTOR` to leave room for inserts, and a regular job rather than ad-hoc rebuilds.",
+  code: "-- the first thing to try on a suddenly-slow query\nUPDATE STATISTICS PurchaseOrder WITH FULLSCAN;\n\nALTER INDEX IX_PO_Vendor_Status ON PurchaseOrder REORGANIZE;\nALTER INDEX IX_PO_Vendor_Status ON PurchaseOrder REBUILD WITH (ONLINE = ON);",
+  project: "This is part of why I check the execution plan's estimated-versus-actual rows before touching indexes — on the high-volume procurement tables a stale statistic produced a plan built for a fraction of the real row count, and no new index would have fixed that.",
+  remember: "Stale statistics beat fragmentation as a cause. Reorganize 10–30%, rebuild above 30%, and rebuild refreshes stats."
 }
 
 ]);
