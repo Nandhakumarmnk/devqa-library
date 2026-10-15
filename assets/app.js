@@ -24,10 +24,18 @@
   };
 
   /* ---------- word helpers ---------- */
+  /* Filler carries no subject, and counting it makes a real answer look
+     like a weak one — "why do you want to leave" is a question about
+     leaving, not about wanting. Keywords that happen to be English words
+     stay out of this list: as, by, from, in, out, set, get, new, base.  */
   var STOP = {what:1,is:1,are:1,the:1,a:1,an:1,of:1,in:1,on:1,to:1,do:1,does:1,did:1,
     how:1,why:1,when:1,me:1,my:1,about:1,and:1,or:1,for:1,you:1,your:1,we:1,i:1,
     explain:1,tell:1,give:1,show:1,can:1,it:1,its:1,with:1,use:1,used:1,using:1,
-    please:1,question:1,answer:1,interview:1,'in':1};
+    please:1,question:1,answer:1,interview:1,'in':1,
+    want:1,wants:1,wanted:1,need:1,needs:1,needed:1,would:1,should:1,could:1,will:1,
+    know:1,knows:1,think:1,going:1,really:1,actually:1,basically:1,simply:1,kindly:1,
+    maybe:1,also:1,just:1,very:1,much:1,many:1,been:1,being:1,have:1,has:1,had:1,
+    was:1,were:1,am:1,be:1,between:1};
 
   // short-hand → real words (so "sp", "di", "oops" still hit)
   var SYN = {
@@ -170,87 +178,330 @@
     DATA.forEach(function (d) { d.probTok = uniq(d.probTok); d.probText = d.probs.join(' | '); });
   })();
 
-  /* vocabulary for typo-correction */
-  var VOCAB = (function () {
-    var m = {};
-    DATA.forEach(function (d) {
-      d.titleTok.concat(d.tagTok).forEach(function (t) { if (t.length >= 5) m[t] = 1; });
+  /* ---------- how much a word is worth ----------
+     A word sitting in half the library tells us nothing; a word in two
+     answers tells us almost everything. Every term score below is
+     multiplied by this, so "indexer" counts for far more than "data".  */
+  var NDOC = DATA.length || 1, DF = {};
+  DATA.forEach(function (d) {
+    var seen = {};
+    d.titleTok.concat(d.tagTok).forEach(function (t) {
+      if (!seen[t]) { seen[t] = 1; DF[t] = (DF[t] || 0) + 1; }
     });
-    return Object.keys(m);
-  })();
+  });
+  var IDF = {};
+  function idf(t) {
+    if (IDF[t] !== undefined) return IDF[t];
+    var df = DF[t] || 0;
+    var v = df ? Math.log(NDOC / df) / Math.log(NDOC / 2) : 1.2;   // unseen word = distinctive
+    return (IDF[t] = Math.max(0.18, Math.min(1.35, v)));
+  }
 
-  /* ---------- scoring ---------- */
-  var corrections = {};                 // {typed: whatWeMatched} from the last search
+  /* every word the library actually uses — what a misspelling is matched against */
+  var VOCAB = Object.keys(DF).filter(function (t) { return t.length >= 4; });
+
+  /* ---------- is this a misspelling of that? ----------
+     Deliberately stricter than the match-time similarity. A word that merely
+     starts with a known word is a different word, not a typo: "indexer" must
+     never be rewritten to "index", or a C# question answers with SQL. Only a
+     word of near-identical length and a character or two out qualifies.     */
+  function misspelling(a, b) {
+    if (Math.abs(a.length - b.length) > 1) return 0;
+    var max = allowance(Math.max(a.length, b.length));
+    if (!max) return 0;
+    var d = dist(a, b, max);
+    if (!d || d > max) return 0;
+    return 1 - d / (Math.max(a.length, b.length) + 1);
+  }
+
+  /* A word built from a word the library knows plus an ordinary English
+     ending is a real word of its own, however close it looks to something
+     else: "indexer" is index+er, one character from "indexes", and must be
+     left alone. The endings that merely inflect a word (-s, -ed, -ing) are
+     not listed — those are matched by sameRoot, and are the shapes a typo
+     usually takes.                                                        */
+  var DERIV = ['er', 'ers', 'ion', 'ions', 'able', 'ible', 'ive', 'ment', 'ments',
+               'ness', 'ful', 'less', 'ly', 'ity', 'ism', 'ist'];
+  function derivedWord(w) {
+    for (var i = 0; i < DERIV.length; i++) {
+      var suf = DERIV[i];
+      if (w.length - suf.length < 4) continue;
+      if (w.slice(-suf.length) !== suf) continue;
+      var root = w.slice(0, -suf.length);
+      if (DF[root] || DF[root + 'e']) return true;      // index+er, declare+ation
+    }
+    return false;
+  }
+
+  /* "records" and "record" are the same idea - count them once */
+  function stem(t) {
+    return (t.length > 3 && t.charAt(t.length - 1) === 's' && t.slice(-2) !== 'ss') ? t.slice(0, -1) : t;
+  }
+
+  /* ---------- same word, different ending ----------
+     Typing "why do you want to leave" has to reach the answer tagged
+     "why leaving". Only the endings that keep the meaning are allowed,
+     so "index" still does not become "indexer".                       */
+  var TAIL = { '': 1, s: 1, es: 1, d: 1, ed: 1, ing: 1, ings: 1 };
+  function sameRoot(a, b) {
+    if (a === b) return true;
+    var sh = a.length <= b.length ? a : b, ln = a.length <= b.length ? b : a;
+    if (sh.length < 3) return false;
+    if (ln.indexOf(sh) !== 0) {
+      // the silent e is dropped before the ending: "leave" -> "leaving"
+      if (sh.charAt(sh.length - 1) !== 'e' || ln.indexOf(sh.slice(0, -1)) !== 0) return false;
+      sh = sh.slice(0, -1);
+    }
+    var tail = ln.slice(sh.length);
+    // the final consonant doubles before the ending: "map" -> "mapping"
+    if (tail.length > 1 && tail.charAt(0) === sh.charAt(sh.length - 1)) tail = tail.slice(1);
+    return TAIL[tail] === 1;
+  }
+
+  /* pre-tokenised problem phrases, so a search does no repeat work */
+  DATA.forEach(function (d) {
+    d.probStems = (d.probs || []).map(function (p) { return uniq(toks(p).map(stem)); });
+  });
+
+  /* ---------- which stack is the question about? ----------
+     "records in c#" must not come back with "delete duplicate rows".
+     A word that names a stack pins the search to that stack: the named
+     topic is lifted, its neighbours are left alone, and everything else
+     is pushed down rather than filtered out - so an answer that genuinely
+     crosses stacks can still win if it is a far better match.           */
+  var TOPIC_HINT = [
+    ['csharp',        ['c#', 'csharp', 'c sharp', '.net', 'dotnet', 'net core', 'clr', 'linq', 'garbage collector']],
+    ['solid',         ['solid', 'oop', 'oops', 'design pattern', 'srp', 'ocp', 'lsp', 'isp', 'dip']],
+    ['aspnet',        ['asp.net', 'aspnet', 'asp net', 'mvc', 'web api', 'webapi', 'middleware', 'razor', 'kestrel', 'entity framework', 'ef core']],
+    ['adonet',        ['ado.net', 'adonet', 'sqlcommand', 'sqldatareader', 'sqlconnection', 'dataset', 'datatable', 'dataadapter']],
+    ['sql',           ['sql', 'sql server', 't-sql', 'tsql', 'ssms', 'stored procedure', 'execution plan']],
+    ['jquery',        ['jquery', 'javascript', 'ajax', 'dom']],
+    ['react',         ['react', 'reactjs', 'react.js', 'jsx', 'usestate', 'useeffect', 'redux', 'hook']],
+    ['azure',         ['azure', 'app service', 'blob storage', 'key vault', 'devops']],
+    ['microservices', ['microservice', 'api gateway', 'service discovery', 'saga']],
+    ['web',           ['html', 'css', 'typescript', 'flexbox', 'bootstrap']],
+    ['coding',        ['coding round', 'write a program', 'program to']],
+    ['hr',            ['hr round', 'notice period', 'salary', 'appraisal']]
+  ];
+
+  /* topics close enough that a hint for one must not bury the other */
+  var NEAR = {
+    csharp:        { solid: 1, coding: 1, adonet: 1, aspnet: 1, scenario: 1 },
+    solid:         { csharp: 1, aspnet: 1, coding: 1 },
+    aspnet:        { csharp: 1, adonet: 1, microservices: 1, solid: 1, azure: 1 },
+    adonet:        { sql: 1, csharp: 1, aspnet: 1 },
+    sql:           { adonet: 1, scenario: 1 },
+    jquery:        { react: 1, web: 1 },
+    react:         { jquery: 1, web: 1 },
+    azure:         { microservices: 1, aspnet: 1, scenario: 1 },
+    microservices: { azure: 1, aspnet: 1, scenario: 1 },
+    web:           { react: 1, jquery: 1 },
+    coding:        { csharp: 1 },
+    scenario:      { projects: 1, sql: 1, aspnet: 1 },
+    projects:      { hr: 1, scenario: 1, microservices: 1 },
+    hr:            { projects: 1 }
+  };
+
+  /* {hit:{topic:1}, near:{topic:1}, words:{token:1}, any:bool} for one query.
+     `words` is every word the hint consumed — "c#" in "string in c#" names
+     the stack, it is not the thing being asked about, so it must not be
+     scored as a search term on top of steering the search.               */
+  function topicHints(qn) {
+    var pad = ' ' + qn + ' ', hit = {}, near = {}, words = {}, any = false, i, j;
+    for (i = 0; i < TOPIC_HINT.length; i++) {
+      var key = TOPIC_HINT[i][0], list = TOPIC_HINT[i][1];
+      for (j = 0; j < list.length; j++) {
+        if (pad.indexOf(' ' + list[j] + ' ') < 0) continue;
+        hit[key] = 1; any = true;
+        list[j].split(' ').forEach(function (w) { words[stem(w)] = 1; });
+      }
+    }
+    if (any) {
+      for (var k in hit) {
+        var n = NEAR[k] || {};
+        for (var m in n) if (!hit[m]) near[m] = 1;
+      }
+    }
+    return { hit: hit, near: near, words: words, any: any };
+  }
+
+  /* ---------- scoring ----------
+     Every result carries `conf` — its score measured against the best score
+     that query could possibly have earned. Checked over 64 questions the
+     library answers and 18 it does not, a real answer lands at 1.1 and up
+     while an uncovered subject stays near 0.5, so this is the line between
+     answering and saying plainly that there is no answer here.            */
+  var CONFIDENT = 1.05;
+
   function search(q, topic) {
-    corrections = {};
     var qn = norm(q);
     if (!qn) return [];
     var qt = uniq(toks(q));
     if (!qt.length) qt = qn.split(' ');
-    var res = [];
 
+    // group the query by stem, so "records" / "record" is one idea, not two
+    var groups = {}, stems = [];
+    for (var gi = 0; gi < qt.length; gi++) {
+      var st = stem(qt[gi]);
+      if (!groups[st]) { groups[st] = []; stems.push(st); }
+      groups[st].push(qt[gi]);
+    }
+
+    // ---- spelling, fixed once for the whole query ----
+    // "clusterd indx" has to become "clustered index" before anything is
+    // weighed, or the misspelling is treated as the rarest word in the
+    // question and drags the confidence down with it. A word with no near
+    // neighbour in the library is left alone: it is a subject we do not
+    // have, not a typo, and it should lower confidence.
+    var qFix = null, fixedAny = false, kept = [];
+    for (var ci = 0; ci < stems.length; ci++) {
+      var sc = stems[ci];
+      if (DF[sc]) { kept.push(sc); continue; }
+      var near = null, nearSim = 0;
+      if (sc.length >= 4 && !derivedWord(sc)) {
+        for (var vi = 0; vi < VOCAB.length; vi++) {
+          var vs = misspelling(sc, VOCAB[vi]);
+          if (vs > nearSim) { nearSim = vs; near = VOCAB[vi]; }
+        }
+      }
+      if (near && nearSim >= 0.72) {
+        (qFix = qFix || {})[sc] = near;
+        fixedAny = true;
+        if (!groups[near]) { groups[near] = []; kept.push(near); }
+        groups[near] = groups[near].concat(groups[sc]).concat([near]);
+      } else if (sc.length >= 4) {
+        kept.push(sc);                 // a real word we simply do not cover
+      }
+      // anything shorter that matched nothing is a typo'd filler — dropped
+    }
+    if (kept.length) stems = kept;
+
+    var hints = topicHints(qn);
+
+    // weight per word: how distinctive it is, less the words that only name
+    // the stack, which the topic boost at the bottom already acts on
+    var W = {}, mass = 0;
+    for (var si = 0; si < stems.length; si++) {
+      W[stems[si]] = idf(stems[si]) * (hints.words[stems[si]] ? 0.15 : 1);
+      mass += W[stems[si]];
+    }
+    var mean = stems.length ? mass / stems.length : 0;
+    var allWords = 26 * mean;             // the all-words bonus, worth what the words are worth
+
+    // What this query would score against a perfect match. A long question is
+    // still only about a few things — "what is the difference between abstract
+    // class and interface with example" is a question about abstract classes
+    // and interfaces — so only its most distinctive words set the bar. Without
+    // this cap, the longer you type the less the right answer is believed.
+    var top = stems.slice().sort(function (x, y) { return W[y] - W[x]; }).slice(0, 4);
+    var topMass = 0;
+    for (var ti = 0; ti < top.length; ti++) topMass += W[top[ti]];
+    var ideal = (top.length > 1 ? 26 * (topMass / top.length) : 0) + 22 * topMass;
+    if (ideal < 12) ideal = 12;
+
+    var res = [];
     for (var i = 0; i < DATA.length; i++) {
       var d = DATA[i];
       if (topic && d.topic !== topic) continue;
       var s = 0, hit = 0, docCorr = null;
 
       if (d.qNorm === qn) s += 200;
-      // a phrase found in the title counts; a single word in a long title does not count twice
+      // a phrase found in the title counts; one word in a long title does not count twice
       else if (d.qNorm.indexOf(qn) >= 0) s += (qn.indexOf(' ') > 0 ? 110 : 30);
-      if (d.tagList.indexOf(qn) >= 0) s += 150;            // typed exactly a curated keyword
+      if (d.tagList.indexOf(qn) >= 0) s += 150;              // typed exactly a curated keyword
       else if ((' ' + d.tagText + ' ').indexOf(' ' + qn + ' ') >= 0) s += 95;
       if (qn.length > 6 && d.bodyText.indexOf(qn) >= 0) s += 22;
 
-      // described-symptom match - how much of one problem phrase did they say
-      if (d.probs.length && qt.length >= 2) {
+      // described-symptom match - how much of one problem phrase did they say.
+      // One word in common is a coincidence, so two distinct words are required,
+      // and the overlap is weighed by how distinctive those words are.
+      if (d.probStems.length && stems.length >= 2) {
         var bestP = 0;
-        for (var pi = 0; pi < d.probs.length; pi++) {
-          var pt = uniq(toks(d.probs[pi]));
-          if (!pt.length) continue;
-          var shared = 0;
-          for (var qi = 0; qi < qt.length; qi++) if (pt.indexOf(qt[qi]) >= 0) shared++;
-          var cover = shared / Math.max(pt.length, qt.length);
+        for (var pi = 0; pi < d.probStems.length; pi++) {
+          var pt = d.probStems[pi];
+          if (pt.length < 2) continue;
+          var shared = 0, got = 0, all = 0, pk;
+          for (pk = 0; pk < pt.length; pk++) if (!hints.words[pt[pk]]) all += idf(pt[pk]);
+          for (pk = 0; pk < stems.length; pk++) {
+            if (hints.words[stems[pk]]) continue;     // naming the stack is not describing the problem
+            if (pt.indexOf(stems[pk]) >= 0) { shared++; got += idf(stems[pk]); }
+          }
+          if (shared < 2) continue;
+          var cover = all ? got / all : 0;
           if (cover > bestP) bestP = cover;
         }
-        if (bestP >= 0.34) s += 60 + 110 * bestP;      // they described the problem
-        else if (bestP > 0) s += 18 * bestP;
+        if (bestP >= 0.5) s += 50 + 90 * bestP;              // they described the problem
+        else if (bestP > 0) s += 14 * bestP;
       }
 
-      for (var k = 0; k < qt.length; k++) {
-        var t = qt[k], got = 0;
-        if (d.titleTok.indexOf(t) >= 0) { s += 20; got = 1; }
-        else {
-          for (var a = 0; a < d.titleTok.length; a++) {
-            if (d.titleTok[a].indexOf(t) === 0 || t.indexOf(d.titleTok[a]) === 0) { s += 11; got = 1; break; }
-          }
-        }
-        if (d.tagTok.indexOf(t) >= 0) { s += 16; got = 1; }
-        else if (d.tagText.indexOf(t) >= 0) { s += 8; got = 1; }
-        if (!got && d.bodyText.indexOf(t) >= 0) { s += 4; got = 1; }
-        if (!got && t.length >= 3) {                       // misspelt or partial word
-          var bestSim = 0, bestWord = null, sim;
-          for (var b = 0; b < d.titleTok.length; b++) {
-            sim = similarity(t, d.titleTok[b]);
-            if (sim > bestSim) { bestSim = sim; bestWord = d.titleTok[b]; }
-          }
-          if (bestSim) { s += 24 * bestSim; got = 1; }
+      for (var k = 0; k < stems.length; k++) {
+        var forms = groups[stems[k]], w = W[stems[k]];
+        var add = 0, got = 0, bestSim = 0, bestWord = null, bestTyped = null;
+
+        for (var f = 0; f < forms.length; f++) {
+          var t = forms[f], a, sim, part = 0, matched = 0;
+
+          if (d.titleTok.indexOf(t) >= 0) { part += 22; matched = 1; }
           else {
-            for (var c = 0; c < d.tagTok.length; c++) {
-              sim = similarity(t, d.tagTok[c]);
-              if (sim > bestSim) { bestSim = sim; bestWord = d.tagTok[c]; }
+            var titleHit = 0;
+            for (a = 0; a < d.titleTok.length; a++) {
+              if (sameRoot(t, d.titleTok[a])) { titleHit = 22; break; }
             }
-            if (bestSim) { s += 19 * bestSim; got = 1; }
+            if (!titleHit) for (a = 0; a < d.titleTok.length; a++) {
+              if (d.titleTok[a].indexOf(t) === 0 || t.indexOf(d.titleTok[a]) === 0) { titleHit = 12; break; }
+            }
+            if (titleHit) { part += titleHit; matched = 1; }
           }
-          if (bestWord && bestSim >= 0.6 && bestWord !== t) (docCorr = docCorr || {})[t] = bestWord;
+          // tags are hand-written search keywords, so a tag hit is as good as
+          // a title hit — "why leaving" is on that answer precisely so that
+          // "why do you want to leave" finds it
+          if (d.tagTok.indexOf(t) >= 0) { part += 22; matched = 1; }
+          else {
+            var tagHit = 0;
+            for (a = 0; a < d.tagTok.length; a++) {
+              if (sameRoot(t, d.tagTok[a])) { tagHit = 20; break; }
+            }
+            if (!tagHit && d.tagText.indexOf(t) >= 0) tagHit = 8;
+            if (tagHit) { part += tagHit; matched = 1; }
+          }
+          if (!matched && d.bodyText.indexOf(t) >= 0) { part += 3.5; matched = 1; }
+
+          if (!matched && t.length >= 4) {                   // misspelt or partial word
+            for (a = 0; a < d.titleTok.length; a++) {
+              sim = similarity(t, d.titleTok[a]);
+              if (sim > bestSim) { bestSim = sim; bestWord = d.titleTok[a]; bestTyped = t; }
+            }
+            if (bestSim) part += 22 * bestSim;
+            else {
+              for (a = 0; a < d.tagTok.length; a++) {
+                sim = similarity(t, d.tagTok[a]);
+                if (sim > bestSim) { bestSim = sim; bestWord = d.tagTok[a]; bestTyped = t; }
+              }
+              if (bestSim) part += 17 * bestSim;
+            }
+            if (bestSim) matched = 1;
+          }
+          if (part > add) add = part;
+          if (matched) got = 1;
         }
+
+        s += add * w;
+        if (bestWord && bestSim >= 0.6 && bestWord !== bestTyped) (docCorr = docCorr || {})[bestTyped] = bestWord;
         if (got) hit++;
       }
 
       if (!s) continue;
-      if (hit === qt.length && qt.length > 1) s += 26;          // covered every word
-      s += Math.max(0, 9 - d.titleTok.length) * 0.6;            // prefer tight titles
+      if (hit === stems.length && stems.length > 1) s += allWords;  // covered every word
+      s += Math.max(0, 9 - d.titleTok.length) * 0.6;                // prefer tight titles
+
+      // the stack the question named wins; a foreign stack has to be far better
+      if (hints.any) {
+        if (hints.hit[d.topic]) s *= 1.9;
+        else if (!hints.near[d.topic]) s *= 0.42;
+      }
       if (d.topic === topic) s += 6;
-      res.push({ d: d, s: s, corr: docCorr });
+
+      res.push({ d: d, s: s, corr: fixedAny ? qFix : docCorr, conf: s / ideal });
     }
 
     res.sort(function (x, y) { return y.s - x.s || x.d._i - y.d._i; });
@@ -320,12 +571,29 @@
               TOPICS[k].name + '<span class="cnt">' + counts[k] + '</span></div>';
       sel += '<option value="' + k + '">' + TOPICS[k].name + ' (' + counts[k] + ')</option>';
     });
+    // the same filter as a chip row, in the main column where it is seen
+    var bar = '<button class="fchip active" data-topic="">All<span class="fcnt">' + DATA.length + '</span></button>';
+    Object.keys(TOPICS).forEach(function (k) {
+      if (!counts[k]) return;
+      bar += '<button class="fchip" data-topic="' + k + '" style="--topic-color:' + TOPICS[k].color + '">' +
+             '<span class="dot" style="background:' + TOPICS[k].color + '"></span>' +
+             TOPICS[k].name + '<span class="fcnt">' + counts[k] + '</span></button>';
+    });
+
     $('topicList').innerHTML = html;
     $('topicSelect').innerHTML = sel;
+    $('filterBar').innerHTML = bar;
     $('brandCount').textContent = DATA.length + ' answers · offline';
 
     Array.prototype.forEach.call($('topicList').children, function (el) {
       el.onclick = function () { setTopic(el.getAttribute('data-topic')); };
+    });
+    Array.prototype.forEach.call($('filterBar').children, function (el) {
+      // clicking the chip that is already on clears it, so one control does both
+      el.onclick = function () {
+        var k = el.getAttribute('data-topic');
+        setTopic(k && k === activeTopic ? '' : k);
+      };
     });
     $('topicSelect').onchange = function () { setTopic(this.value); };
   }
@@ -351,6 +619,9 @@
   function setTopic(t) {
     activeTopic = t || '';
     Array.prototype.forEach.call($('topicList').children, function (el) {
+      el.classList.toggle('active', el.getAttribute('data-topic') === activeTopic);
+    });
+    Array.prototype.forEach.call($('filterBar').children, function (el) {
       el.classList.toggle('active', el.getAttribute('data-topic') === activeTopic);
     });
     $('topicSelect').value = activeTopic;
@@ -653,6 +924,28 @@
         "<span>Browse all " + list.length + "</span></button></div>";
   }
 
+  /* ---------- nothing really matches ----------
+     Shown instead of an answer when the best hit is weak. The topic badge
+     on every row is the point: it is obvious at a glance that the closest
+     thing to "dispose pattern" sits in OOP & SOLID, so a wrong-subject
+     answer can never be mistaken for the right one.                      */
+  function nearMissHTML(q, near) {
+    var scoped = activeTopic ? ' in <b>' + esc(TOPICS[activeTopic].name) + '</b>' : '';
+    return '<div class="nomatch">' +
+      '<p class="nm-lead">No direct answer for <b>' + esc(q) + '</b>' + scoped + ' in the library yet.</p>' +
+      (near.length ? '<p class="nm-sub">Closest to what you asked:</p><div class="near-list">' +
+        near.map(function (r) {
+          var t = TOPICS[r.d.topic] || { name: r.d.topic, color: '#888' };
+          return '<button class="near" data-ask="' + esc(r.d.q) + '">' +
+            '<span class="mini" style="color:' + t.color + ';border-color:' + t.color + '55">' + esc(t.name) + '</span>' +
+            '<span class="near-q">' + esc(r.d.q) + '</span></button>';
+        }).join('') + '</div>' : '') +
+      '<p class="nm-foot">' + (activeTopic
+        ? 'Still nothing? Clear the topic filter to search all ' + DATA.length + ' answers.'
+        : 'Or narrow it down with the topic filter above.') + '</p>' +
+      '</div>';
+  }
+
   /* ---------- ask ---------- */
   var busy = false, pendingAsk = null;
   function ask(q) {
@@ -679,11 +972,11 @@
     // typed in spoken form? ("sequel server", "jay query") - only as a rescue,
     // so a query that already works is never rewritten
     var spokenFix = null;
-    if (!res.length || res[0].s < 45) {
+    if (!res.length || res[0].conf < CONFIDENT) {
       var alt = fixSpoken(q);
       if (alt && alt !== norm(q)) {
         var res2 = search(alt, activeTopic);
-        if (res2.length && (!res.length || res2[0].s > res[0].s + 8)) { res = res2; spokenFix = alt; }
+        if (res2.length && (!res.length || res2[0].conf > res[0].conf + 0.15)) { res = res2; spokenFix = alt; }
       }
     }
     var corr = (res[0] && res[0].corr) || {};
@@ -710,26 +1003,33 @@
           '</div>';
       } else {
         var top = res[0].d;
-        // a weak top hit still gets answered — say so rather than showing nothing
         var fixed = Object.keys(corr);
-        if (spokenFix) { holder.innerHTML = '<div class="didyoumean">Searched for <b>' + esc(spokenFix) + '</b> instead of <i>' + esc(q) + '</i>.</div>'; }
-        if (!spokenFix && (res[0].s < 30 || fixed.length)) {
-          holder.innerHTML =
-            '<div class="didyoumean">' +
-            (fixed.length
-              ? 'Searched for <b>' + esc(fixed.map(function (k) { return corr[k]; }).join(' ')) +
-                '</b> instead of <i>' + esc(fixed.join(' ')) + '</i>.'
-              : 'No exact match for <i>' + esc(q) + '</i> — this is the closest answer.') +
-            '</div>';
+        var lead = '';
+        if (spokenFix) {
+          lead = '<div class="didyoumean">Searched for <b>' + esc(spokenFix) + '</b> instead of <i>' + esc(q) + '</i>.</div>';
+        } else if (fixed.length) {
+          lead = '<div class="didyoumean">Searched for <b>' +
+            esc(fixed.map(function (k) { return corr[k]; }).join(' ')) +
+            '</b> instead of <i>' + esc(fixed.join(' ')) + '</i>.</div>';
         }
-        var rel = res.slice(1, 6).filter(function (r) { return r.s >= 25; }).map(function (r) { return r.d; });
-        if (rel.length < 4) {
-          DATA.filter(function (d) { return d.topic === top.topic && d.id !== top.id; }).slice(0, 4 - rel.length)
-            .forEach(function (d) { rel.push(d); });
+
+        if (res[0].conf < CONFIDENT) {
+          // Nothing here really answers this. Say so and show what is nearest,
+          // rather than handing over a confident answer from the wrong subject —
+          // a C# question must never come back as a SQL answer.
+          holder.innerHTML = lead + nearMissHTML(q, res.slice(0, 5));
+          pushRecent(q);
+          streamIn(holder);
+        } else {
+          var rel = res.slice(1, 6).filter(function (r) { return r.conf >= 0.5; }).map(function (r) { return r.d; });
+          if (rel.length < 4) {
+            DATA.filter(function (d) { return d.topic === top.topic && d.id !== top.id; }).slice(0, 4 - rel.length)
+              .forEach(function (d) { rel.push(d); });
+          }
+          holder.innerHTML = lead + answerHTML(top, ms, rel);
+          pushRecent(q);
+          streamIn(holder);               // reveal block by block, like a reply arriving
         }
-        holder.innerHTML += answerHTML(top, ms, rel);
-        pushRecent(q);
-        streamIn(holder);                 // reveal block by block, like a reply arriving
       }
       bindAnswer(holder);
       busy = false;
