@@ -62,22 +62,34 @@ tags rather than `fetch`, specifically so the page works straight from the files
 - **Dark and light themes**, following your system setting by default
 - `/` focuses the search box, `Ctrl+B` hides or shows the sidebar; `index.html#q=solid` deep-links to an answer
 
-## Voice search
+## Voice mode
 
-Off by default. Turn it on in the sidebar, then click the mic (or press
-**Ctrl+M**) and speak the question — the words appear as you talk and the
-answer loads when you stop. Voice in, text out.
+Switch the sidebar control to **Voice** once. The browser asks for the
+microphone that one time, and after that it stays listening — ask, read
+the answer, ask the next one, no clicking in between. It survives the
+silence timeouts and session limits the browser imposes by reopening a
+session automatically, and it picks straight back up after a reload.
 
-Two things worth knowing, which is why it is opt-in:
+Stop it deliberately: tap the mic, press **Escape**, or switch back to
+**Text**. Typing still works while voice is on.
+
+Answers are always text — nothing is read aloud.
+
+Two things worth knowing, and why it is opt-in rather than on by default:
 
 - **It is the one feature that uses the network.** The browser transcribes
-  speech through its vendor's online service. The answers themselves still
-  come from the local files, and the footer text changes to say so while
-  voice is on.
+  speech through its vendor's online service. The answers still come from
+  the local files, and the footer text says so while voice is on.
 - **It needs a secure page.** It works on the published `https://` link and
   on `localhost`, but not on a file opened straight from disk — Chrome
-  blocks microphone access there. Opening `index.html` by double-clicking
-  will show the mic, and clicking it explains why it cannot run.
+  blocks the microphone there, and the mic button explains that rather than
+  failing silently.
+
+Speech recognition mangles developer words, so `data/qa-speech.js` maps what
+the microphone actually produces onto what you meant — "sequel server",
+"jason", "a sink await", "see sharp", "jay query". Add your own as you hit
+them. The same map rescues typed queries, but only when the direct search is
+weak, so a query that already works is never rewritten.
 
 ## How the search works
 

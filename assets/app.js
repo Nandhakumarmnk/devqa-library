@@ -545,10 +545,11 @@
   }
 
   /* ---------- ask ---------- */
-  var busy = false;
+  var busy = false, pendingAsk = null;
   function ask(q) {
     q = String(q || '').trim();
-    if (!q || busy) return;
+    if (!q) return;
+    if (busy) { pendingAsk = q; return; }   // asked again mid-answer: queue it, never drop it
     busy = true;
     showLibrary(false);
     if (welcome) welcome.style.display = 'none';
@@ -616,6 +617,7 @@
       }
       bindAnswer(holder);
       busy = false;
+      if (pendingAsk) { var next = pendingAsk; pendingAsk = null; setTimeout(function () { ask(next); }, 30); }
       loading.scrollIntoView({ behavior: 'smooth', block: 'start' });
       setTimeout(syncJump, 400);
       voiceFollowUp();
@@ -774,7 +776,7 @@
 
   /* ---------- events ---------- */
   function syncSend() { $('send').disabled = !input.value.trim(); }
-  input.addEventListener('input', function () { autosize(); showSuggest(); syncSend(); askedByVoice = false; });
+  input.addEventListener('input', function () { autosize(); showSuggest(); syncSend(); });
   input.addEventListener('blur', function () { setTimeout(hideSuggest, 120); });
   input.addEventListener('keydown', function (e) {
     if (e.key === 'ArrowDown') { if (moveSg(1)) e.preventDefault(); return; }
@@ -839,35 +841,42 @@
   window.DevQA = { data: DATA, search: search, ask: ask, topics: TOPICS };
 
   /* ============================================================
-     Voice mode.
+     Voice mode — always listening, no clicking between questions.
 
-     Text mode is normal typing. Voice mode keeps the microphone in
-     play for every question: ask, get the answer, and it listens
-     again for the next one without you touching anything.
+     Switch to Voice once and the microphone stays live: ask, read the
+     answer, ask the next one. Recognition sessions end on their own
+     (silence, or the browser's own limit) so this restarts them
+     automatically — the user never sees that happen.
 
-     Answers always come back as text — nothing is read aloud.
+     It stops only when you mean it to: tap the mic, press Escape, or
+     switch back to Text. Permission is asked once by the browser, and
+     remembered after that.
 
-     Honest note, and why it is opt-in: the browser transcribes
-     through its vendor's online service, so voice is the one part of
-     this app that touches the network. Everything else is local. It
-     also needs a secure context, so it works on https:// and
+     Answers come back as text — nothing is read aloud.
+
+     Honest note: the browser transcribes through its vendor's online
+     service, so voice is the one part of this app that touches the
+     network. It also needs a secure page, so it works on https:// and
      localhost but not on a file:// page opened from disk.
      ============================================================ */
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var recog = null, listening = false, askedByVoice = false, stopping = false;
+  var recog = null;
+  var listening = false;        // a session is actually running
+  var wantListening = false;    // the user wants the mic live
   var mode = LS.get('mode', 'text');
+  var micGranted = LS.get('micOk', false);
 
-  /* --- what the microphone heard -> what you meant ---------------
-     "sequel server" -> "sql server", "jason" -> "json". Longest
-     phrases first so "sequel server" beats "sequel".              */
+  var finalBuffer = '', submitTimer = null, restartTimer = null;
+  var errorCount = 0, errorWindowAt = 0;
+
+  /* --- what the microphone heard -> what you meant --------------- */
   var SPEECH_KEYS = Object.keys(window.QA_SPEECH || {})
     .sort(function (a, b) { return b.length - a.length; });
 
   function fixSpoken(text) {
     var out = ' ' + String(text || '').toLowerCase().replace(/\s+/g, ' ').trim() + ' ';
     for (var i = 0; i < SPEECH_KEYS.length; i++) {
-      var k = SPEECH_KEYS[i];
-      var idx = out.indexOf(' ' + k + ' ');
+      var k = SPEECH_KEYS[i], idx = out.indexOf(' ' + k + ' ');
       while (idx >= 0) {
         out = out.slice(0, idx) + ' ' + window.QA_SPEECH[k] + ' ' + out.slice(idx + k.length + 2);
         idx = out.indexOf(' ' + k + ' ');
@@ -891,103 +900,141 @@
       b.classList.toggle('active', b.getAttribute('data-mode') === mode);
     });
     $('micBtn').hidden = mode !== 'voice';
-
-    var bar = $('voiceBar');
-    if (bar) bar.hidden = mode !== 'voice';
-
     var hint = document.querySelector('.composer-hint');
     if (hint) {
       hint.firstChild.nodeValue = mode === 'voice'
         ? 'Answers run locally · only voice transcription uses the network · '
         : 'Runs fully offline on your machine · no internet, no API, no cost · ';
     }
-    input.placeholder = mode === 'voice' ? 'Tap the mic, or type…' : 'Ask anything…';
+    input.placeholder = mode === 'voice' ? 'Just speak — or type here' : 'Ask anything…';
   }
 
-  function setListening(on) {
-    listening = on;
-    $('micBtn').classList.toggle('listening', on);
-    $('composerShell').classList.toggle('listening', on);
-    if ($('kbdHint')) $('kbdHint').hidden = on;
-    if ($('listeningNote')) $('listeningNote').hidden = !on;
-    if (!on) input.classList.remove('interim');
-    var bs = $('voiceBarState');
-    if (bs) bs.textContent = on ? 'listening…' : 'ready — tap the mic';
+  function paintListening() {
+    $('micBtn').classList.toggle('listening', wantListening);
+    $('composerShell').classList.toggle('listening', wantListening);
+    if ($('kbdHint')) $('kbdHint').hidden = wantListening;
+    if ($('listeningNote')) $('listeningNote').hidden = !wantListening;
+    $('micBtn').title = wantListening ? 'Stop listening (Esc)' : 'Start listening (Ctrl+M)';
+    if (!wantListening) input.classList.remove('interim');
   }
 
-  function startListening() {
-    if (listening) { stopListening(); return; }
-    var reason = voiceBlockReason();
-    if (reason) { toast(reason); return; }
+  /* ---- the session itself ---- */
+  function startRecognition() {
+    if (listening || !wantListening || mode !== 'voice') return;
+    if (!SR) return;
 
     recog = new SR();
     recog.lang = LS.get('speechLang', 'en-IN');
     recog.interimResults = true;
-    recog.continuous = false;
+    recog.continuous = true;          // stay open across several questions
     recog.maxAlternatives = 1;
 
-    var finalText = '';
-    stopping = false;
-
-    recog.onstart = function () { setListening(true); };
+    recog.onstart = function () {
+      listening = true;
+      micGranted = true;
+      LS.set('micOk', true);
+      errorCount = 0;
+      paintListening();
+    };
 
     recog.onresult = function (e) {
       var interim = '';
       for (var i = e.resultIndex; i < e.results.length; i++) {
         var t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finalText += t; else interim += t;
+        if (e.results[i].isFinal) finalBuffer += ' ' + t;
+        else interim += t;
       }
-      input.value = (finalText + interim).trim();
-      input.classList.toggle('interim', !finalText && !!interim);
-      autosize();
-      syncSend();
+      if (!busy) {
+        input.value = (finalBuffer + ' ' + interim).replace(/\s+/g, ' ').trim();
+        input.classList.toggle('interim', !finalBuffer.trim() && !!interim);
+        autosize();
+        syncSend();
+      }
+      // a short pause after the last final chunk means the question is finished
+      clearTimeout(submitTimer);
+      if (finalBuffer.trim()) submitTimer = setTimeout(submitHeard, 700);
     };
 
     recog.onerror = function (e) {
-      setListening(false);
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-        toast('Microphone blocked. Allow it in the address bar, then try again.');
+        // the only error that should actually stop us
+        wantListening = false;
+        micGranted = false;
+        LS.set('micOk', false);
+        toast('Microphone blocked. Allow it from the icon in the address bar, then switch Voice on again.');
         setMode('text');
-      } else if (e.error === 'no-speech') {
-        toast('Did not catch that — tap the mic and try again.');
-      } else if (e.error === 'network') {
-        toast('Speech service unreachable. Voice needs internet; the answers do not.');
-      } else if (e.error !== 'aborted') {
-        toast('Voice error: ' + e.error);
+        return;
       }
+      if (e.error === 'no-speech' || e.error === 'aborted') return;   // onend will restart
+      if (e.error === 'network') {
+        noteError('Speech service unreachable. Voice needs internet; the answers do not.');
+        return;
+      }
+      noteError('Voice error: ' + e.error);
     };
 
     recog.onend = function () {
-      setListening(false);
+      listening = false;
       input.classList.remove('interim');
-      var heard = input.value.trim();
-      if (!heard || stopping) return;
-
-      var fixed = fixSpoken(heard);
-      input.value = fixed;
-      askedByVoice = true;
-      if (fixed !== heard.toLowerCase()) {
-        toast('Heard “' + heard + '” → searching “' + fixed + '”');
+      // sessions end by themselves on silence — just open a new one
+      if (wantListening && mode === 'voice') {
+        clearTimeout(restartTimer);
+        restartTimer = setTimeout(startRecognition, 250);
+      } else {
+        paintListening();
       }
-      ask(fixed);
     };
 
     try { recog.start(); }
-    catch (err) { setListening(false); toast('Could not start the microphone.'); }
+    catch (err) {
+      // start() throws if a session is already running — harmless
+      listening = false;
+      if (wantListening) { clearTimeout(restartTimer); restartTimer = setTimeout(startRecognition, 400); }
+    }
+  }
+
+  /* repeated failures should not spin forever */
+  function noteError(msg) {
+    var now = Date.now();
+    if (now - errorWindowAt > 15000) { errorWindowAt = now; errorCount = 0; }
+    errorCount++;
+    if (errorCount === 1) toast(msg);
+    if (errorCount >= 4) {
+      wantListening = false;
+      paintListening();
+      toast('Voice keeps failing — stopped. Tap the mic to try again.');
+    }
+  }
+
+  function submitHeard() {
+    var heard = finalBuffer.replace(/\s+/g, ' ').trim();
+    finalBuffer = '';
+    if (!heard || heard.length < 2) return;
+
+    var fixed = fixSpoken(heard);
+    input.value = fixed;
+    input.classList.remove('interim');
+    if (fixed !== heard.toLowerCase()) toast('Heard “' + heard + '” → searching “' + fixed + '”');
+    ask(fixed);
+  }
+
+  function startListening() {
+    var reason = voiceBlockReason();
+    if (reason) { toast(reason); return; }
+    wantListening = true;
+    finalBuffer = '';
+    paintListening();
+    startRecognition();
   }
 
   function stopListening() {
-    stopping = true;
+    wantListening = false;
+    clearTimeout(restartTimer);
+    clearTimeout(submitTimer);
+    finalBuffer = '';
     if (recog) { try { recog.abort(); } catch (e) {} }
-    setListening(false);
-  }
-
-  /* after an answer in voice mode, listen again for the next question */
-  function voiceFollowUp() {
-    if (mode !== 'voice' || !askedByVoice || listening) return;
-    setTimeout(function () {
-      if (mode === 'voice' && !listening && !input.value.trim()) startListening();
-    }, 900);
+    listening = false;
+    paintListening();
   }
 
   function setMode(next) {
@@ -997,29 +1044,52 @@
     }
     mode = next;
     LS.set('mode', mode);
-    if (mode === 'text') { askedByVoice = false; stopListening(); }
     paintMode();
     if (mode === 'voice') {
-      toast('Voice mode on. Tap the mic and ask — it keeps listening for each next question.');
+      startListening();                       // this click is the gesture the browser needs
+      if (!micGranted) toast('Allow the microphone once — after that it keeps listening, no clicking.');
+      else toast('Voice mode on. Just speak — it stays listening after each answer.');
+    } else {
+      stopListening();
     }
   }
+
+  /* the mic button is now start / stop, not ask-once */
+  $('micBtn').onclick = function () {
+    if (wantListening) stopListening(); else startListening();
+  };
 
   Array.prototype.forEach.call(document.querySelectorAll('.mode-opt'), function (b) {
     b.onclick = function () { setMode(b.getAttribute('data-mode')); };
   });
 
-  $('micBtn').onclick = startListening;
-
   document.addEventListener('keydown', function (e) {
     if ((e.ctrlKey || e.metaKey) && (e.key === 'm' || e.key === 'M')) {
       e.preventDefault();
-      if (mode === 'voice') startListening();
-      else setMode('voice');
+      if (mode !== 'voice') setMode('voice');
+      else if (wantListening) stopListening();
+      else startListening();
     }
-    if (e.key === 'Escape' && listening) stopListening();
+    if (e.key === 'Escape' && wantListening) stopListening();
   });
 
+  /* nothing to do after an answer — the session is already listening */
+  function voiceFollowUp() { }
+
   paintMode();
+  paintListening();
+
+  /* remembered voice mode: pick straight back up without a click */
+  if (mode === 'voice' && micGranted && !voiceBlockReason()) {
+    wantListening = true;
+    paintListening();
+    setTimeout(startRecognition, 300);
+    // if the browser refuses without a gesture, the first click anywhere starts it
+    document.addEventListener('click', function once() {
+      document.removeEventListener('click', once);
+      if (wantListening && !listening) startRecognition();
+    });
+  }
 
 
   /* ---------- rotating placeholder ---------- */
