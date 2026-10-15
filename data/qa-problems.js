@@ -13,6 +13,8 @@ window.QA_PROBLEMS = [
 
 /* ---------- performance ---------- */
 { id: "sql-slow-query", p: [
+  "how to improve the performance of the application",
+  "how do i make the application faster",
   "filtering by today on an indexed date column is slow",
   "cast on a date column stops the index being used",
   "my query is running very slow",

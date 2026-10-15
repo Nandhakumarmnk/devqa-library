@@ -15,7 +15,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-restapi", topic: "aspnet", star: true,
   q: "What makes an API RESTful? Verbs and status codes",
-  tags: ["rest api", "restful", "http verbs", "status codes", "web api design"],
+  tags: ["rest api", "what is rest api", "restful", "rest", "http verbs", "status codes", "web api design"],
   simple: "REST means you expose resources by URL and use the standard HTTP verbs on them, and you return the right status code so the caller knows what happened without reading the body.",
   answer: "Principles: resource-based URLs (nouns, plural — `/api/vendors/12/orders`), stateless requests, proper verb use, and consistent representations (JSON).\nVerbs: **GET** read (safe, idempotent), **POST** create, **PUT** full update (idempotent), **PATCH** partial update, **DELETE** remove (idempotent).\nStatus codes I actually use: 200 OK, 201 Created with a Location header, 204 No Content, 400 Bad Request for validation, 401 Unauthorized (not authenticated), 403 Forbidden (authenticated but not allowed), 404 Not Found, 409 Conflict, 422 for semantic validation, 500 for unhandled errors.\nAlso: version the API, page large collections, and never return the EF entity directly — map to a DTO.",
   code: "[HttpPost]\npublic async Task<IActionResult> Create(CreateVendorDto dto)\n{\n    if (!ModelState.IsValid) return BadRequest(ModelState);\n    var id = await _service.CreateAsync(dto);\n    return CreatedAtAction(nameof(Get), new { id }, null);   // 201 + Location\n}",
@@ -221,7 +221,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-mvc-lifecycle", topic: "aspnet",
   q: "ASP.NET MVC — request lifecycle, ViewBag vs ViewData vs TempData",
-  tags: ["mvc", "mvc lifecycle", "viewbag viewdata tempdata", "razor", "partial view"],
+  tags: ["mvc", "explain mvc", "mvc flow", "what is mvc", "mvc lifecycle", "viewbag viewdata tempdata", "razor", "partial view"],
   simple: "A request goes route → controller → action → model → view → HTML. ViewBag and ViewData pass data to the current view only; TempData survives one redirect.",
   answer: "Lifecycle: routing matches the URL to a controller and action, model binding fills the parameters, filters run, the action executes and returns an `ActionResult`, the view engine renders Razor to HTML.\nPassing data:\n- **ViewData** — dictionary, string keys, needs casting.\n- **ViewBag** — dynamic wrapper over ViewData, no compile-time check.\n- **TempData** — backed by session, survives exactly one redirect, which is how I carry a success message through a POST-redirect-GET.\nThe right answer for anything structured is a strongly typed view model — compile-time safety and IntelliSense beat dynamic bags.",
   code: "TempData[\"Message\"] = \"Purchase order approved\";\nreturn RedirectToAction(nameof(Index));",

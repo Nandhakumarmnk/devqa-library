@@ -140,9 +140,16 @@
     d.tagTok = uniq(toks((d.tags || []).join(' ')));
     d.tagText = norm((d.tags || []).join(' '));
     d.tagList = (d.tags || []).map(norm);                 // exact curated keywords
-    d.bodyText = norm([d.simple, d.answer, d.project, d.remember, d.code].join(' ')).slice(0, 2600);
+    d.bodyText = norm([d.simple, d.answer, d.project, d.remember, d.code,
+      (window.QA_SCRIPT && window.QA_SCRIPT[d.id] ? window.QA_SCRIPT[d.id].script : ''),
+      (window.QA_SCRIPT && window.QA_SCRIPT[d.id] ? (window.QA_SCRIPT[d.id].followups || []).map(function (f) { return f.q + ' ' + f.a; }).join(' ') : '')
+    ].join(' ')).slice(0, 3200);
     d.topicName = (TOPICS[d.topic] || {}).name || d.topic;
     if (window.QA_COMPARE && window.QA_COMPARE[d.id]) d.compare = window.QA_COMPARE[d.id];
+    if (window.QA_SCRIPT && window.QA_SCRIPT[d.id]) {
+      d.script = window.QA_SCRIPT[d.id].script;
+      d.followups = window.QA_SCRIPT[d.id].followups;
+    }
   });
 
   /* ---------- problem statements ----------
@@ -432,14 +439,14 @@
      and is what you would sketch on a whiteboard anyway.            */
   function compareTable(c) {
     if (!c || !c.rows || !c.rows.length) return '';
-    return '<div class="block cmp"><div class="block-label">Side by side</div>' +
+    return '<h3 class="a-h">Side by side</h3>' +
       '<div class="cmp-wrap"><table class="cmp-table"><thead><tr>' +
         '<th></th><th>' + esc(c.a) + '</th><th>' + esc(c.b) + '</th>' +
       '</tr></thead><tbody>' +
       c.rows.map(function (r) {
         return '<tr><th>' + inlineMd(r[0]) + '</th><td>' + inlineMd(r[1]) + '</td><td>' + inlineMd(r[2]) + '</td></tr>';
       }).join('') +
-      '</tbody></table></div></div>';
+      '</tbody></table></div>';
   }
 
   /* ---------- answer rendering ---------- */
@@ -448,53 +455,96 @@
     return '<span class="badge" style="color:' + t.color + ';border-color:' + t.color + '55;background:' + t.color + '14">' + t.name + '</span>';
   }
 
+  /* ---------- the assistant message ----------
+     Flowing prose with quiet headings, the way a real assistant
+     replies — not a reference card of labelled boxes.            */
   function answerHTML(d, ms, rel) {
+    var t = TOPICS[d.topic] || { name: d.topic, color: '#888' };
     var h = '';
-    h += '<div class="ans-head">' + badge(d.topic) +
-         '<span class="ans-title">' + esc(d.q) + '</span>' +
-         '<span class="score">' + ms + ' ms</span></div>';
 
-    if (d.simple) {
-      h += '<div class="block simple"><div class="block-label">In simple words</div>' + md(d.simple) + '</div>';
+    h += '<div class="a-head">' +
+           '<h2 class="a-title">' + esc(d.q) + '</h2>' +
+           '<span class="a-chip" style="color:' + t.color + ';border-color:' + t.color + '40;background:' + t.color + '14">' +
+             esc(t.name) + '</span>' +
+         '</div>';
+
+    if (d.simple) h += '<div class="a-lead">' + md(d.simple) + '</div>';
+
+    if (d.script) {
+      h += '<h3 class="a-h">Say this, word for word</h3>' +
+           '<blockquote class="a-script">' + md(d.script) + '</blockquote>';
     }
+
     var kp = keyPoints(d);
     if (kp.length > 1) {
-      h += '<div class="block keypts"><div class="block-label">Key points to hit</div><ol class="kp-list">' +
-           kp.map(function (p) { return '<li>' + inlineMd(p) + '</li>'; }).join('') +
-           '</ol></div>';
+      h += '<h3 class="a-h">Key points</h3><ol class="a-kp">' +
+             kp.map(function (p) { return '<li>' + inlineMd(p) + '</li>'; }).join('') +
+           '</ol>';
     }
-    h += '<div class="block"><div class="block-label">Say this in the interview</div><div class="say">' + md(d.answer) + '</div></div>';
+
+    h += '<h3 class="a-h">The answer</h3><div class="a-body">' + md(d.answer) + '</div>';
+
     if (d.compare) h += compareTable(d.compare);
-    if (d.code) {
-      h += '<div class="block"><div class="block-label">Code</div><pre><code>' + esc(d.code) + '</code></pre></div>';
+
+    if (d.followups && d.followups.length) {
+      h += '<h3 class="a-h">What they ask next</h3><dl class="a-fu">' +
+        d.followups.map(function (f) {
+          return '<dt>' + inlineMd(f.q) + '</dt><dd>' + inlineMd(f.a) + '</dd>';
+        }).join('') + '</dl>';
     }
+
+    if (d.code) {
+      h += '<figure class="a-code">' +
+             '<figcaption><span class="a-lang">' + esc(codeLang(d)) + '</span>' +
+               '<button class="a-copycode" data-code="' + d.id + '">Copy</button></figcaption>' +
+             '<pre><code>' + esc(d.code) + '</code></pre>' +
+           '</figure>';
+    }
+
     if (d.project) {
-      h += '<div class="block proj"><div class="block-label">Where I used it in my project</div><div class="proj-box">' + md(d.project) + '</div></div>';
+      h += '<h3 class="a-h">Where I used it</h3><div class="a-note">' + md(d.project) + '</div>';
     }
     if (d.note) {
-      h += '<div class="block tip"><div class="block-label">Before the interview</div><div class="tip-box">' + md(d.note) + '</div></div>';
+      h += '<h3 class="a-h">Before the interview</h3><div class="a-note tip">' + md(d.note) + '</div>';
     }
     if (d.remember) {
-      h += '<div class="block"><div class="remember"><span>📌</span><div><b>Remember:</b> ' + md(d.remember).replace(/<\/?p>/g, '') + '</div></div></div>';
-    }
-    if (d.tags && d.tags.length) {
-      h += '<div class="tags">' + d.tags.slice(0, 8).map(function (t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('') + '</div>';
+      h += '<p class="a-remember"><b>Remember</b> · ' + inlineMd(d.remember) + '</p>';
     }
 
     var done = !!learned[d.id];
-    h += '<div class="ans-actions">' +
-      '<button class="act" data-copy="' + d.id + '">📋 Copy answer</button>' +
-      '<button class="act ' + (done ? 'done' : '') + '" data-learn="' + d.id + '">' + (done ? '✓ Learned' : '◻ Mark learned') + '</button>' +
-      '<button class="act" data-topicjump="' + d.topic + '">More from ' + esc(d.topicName) + '</button>' +
-      '</div>';
+    h += '<div class="a-actions">' +
+           '<button class="a-act" data-copy="' + d.id + '" title="Copy answer">' + ICON.copy + '<span>Copy</span></button>' +
+           '<button class="a-act ' + (done ? 'on' : '') + '" data-learn="' + d.id + '" title="Mark as learned">' +
+             ICON.check + '<span>' + (done ? 'Learned' : 'Mark learned') + '</span></button>' +
+           '<button class="a-act" data-topicjump="' + d.topic + '" title="Browse this topic">' + ICON.grid + '<span>' + esc(t.name) + '</span></button>' +
+           '<span class="a-ms">' + ms + ' ms</span>' +
+         '</div>';
 
     if (rel && rel.length) {
-      h += '<div class="related"><div class="block-label">Related questions</div><div class="rel-chips">' +
-        rel.map(function (r) { return '<button class="rel" data-ask="' + esc(r.q) + '">' + esc(r.q) + '</button>'; }).join('') +
-        '</div></div>';
+      h += '<div class="a-rel"><h3 class="a-h">Related</h3><div class="rel-chips">' +
+             rel.map(function (r) { return '<button class="rel" data-ask="' + esc(r.q) + '">' + esc(r.q) + '</button>'; }).join('') +
+           '</div></div>';
     }
     return h;
   }
+
+  /* a sensible language label for the code header */
+  function codeLang(d) {
+    var c = d.code || '';
+    if (/^\s*(SELECT|CREATE|ALTER|UPDATE|DELETE|INSERT|WITH|BEGIN|DECLARE|EXEC|MERGE|--)/i.test(c)) return 'sql';
+    if (/^\s*(git |npm |dotnet |docker)/i.test(c)) return 'bash';
+    if (/[{};]\s*$/m.test(c) && /\b(const|let|var|function|=>|await)\b/.test(c) && !/\b(public|private|void|string |int )\b/.test(c)) return 'javascript';
+    if (/<[a-z]+[\s>]/i.test(c) && /className|=>|useState/.test(c)) return 'jsx';
+    if (/^\s*[.#a-z-]+\s*\{/m.test(c) && /:\s*[^;]+;/.test(c)) return 'css';
+    if (/^\s*</.test(c)) return 'html';
+    return 'csharp';
+  }
+
+  var ICON = {
+    copy:  '<svg viewBox="0 0 24 24" width="14" height="14"><rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M5 15V5a2 2 0 0 1 2-2h8" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>',
+    check: '<svg viewBox="0 0 24 24" width="14" height="14"><path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    grid:  '<svg viewBox="0 0 24 24" width="14" height="14"><path d="M4 5h6v6H4zM14 5h6v6h-6zM4 13h6v6H4zM14 13h6v6h-6z" stroke="currentColor" stroke-width="1.7" fill="none"/></svg>'
+  };
 
   function row(cls, avatar, bodyHtml) {
     var div = document.createElement('div');
@@ -510,14 +560,24 @@
     Array.prototype.forEach.call(el.querySelectorAll('[data-ask]'), function (b) {
       b.onclick = function () { ask(b.getAttribute('data-ask')); };
     });
+    Array.prototype.forEach.call(el.querySelectorAll('[data-code]'), function (b) {
+      b.onclick = function () {
+        var d = DATA.filter(function (x) { return x.id === b.getAttribute('data-code'); })[0];
+        if (!d || !d.code) return;
+        if (navigator.clipboard) navigator.clipboard.writeText(d.code);
+        b.textContent = 'Copied';
+        setTimeout(function () { b.textContent = 'Copy'; }, 1400);
+      };
+    });
     Array.prototype.forEach.call(el.querySelectorAll('[data-copy]'), function (b) {
       b.onclick = function () { copyAnswer(b.getAttribute('data-copy')); };
     });
     Array.prototype.forEach.call(el.querySelectorAll('[data-learn]'), function (b) {
       b.onclick = function () {
         var id = b.getAttribute('data-learn');
-        if (learned[id]) { delete learned[id]; b.className = 'act'; b.textContent = '◻ Mark learned'; }
-        else { learned[id] = 1; b.className = 'act done'; b.textContent = '✓ Learned'; toast('Marked as learned'); }
+        var label = b.querySelector('span');
+        if (learned[id]) { delete learned[id]; b.classList.remove('on'); if (label) label.textContent = 'Mark learned'; }
+        else { learned[id] = 1; b.classList.add('on'); if (label) label.textContent = 'Learned'; toast('Marked as learned'); }
         LS.set('learned', learned); updateProgress();
       };
     });
@@ -532,6 +592,8 @@
     var txt = d.q + '\n\n' + (d.simple ? 'IN SIMPLE WORDS\n' + d.simple + '\n\n' : '') +
       'INTERVIEW ANSWER\n' + d.answer + '\n\n' +
       (d.code ? 'CODE\n' + d.code + '\n\n' : '') +
+      (d.script ? 'SAY THIS\n' + d.script + '\n\n' : '') +
+      (d.followups ? 'WHAT THEY ASK NEXT\n' + d.followups.map(function (f) { return 'Q: ' + f.q + '\nA: ' + f.a; }).join('\n') + '\n\n' : '') +
       (d.project ? 'WHERE I USED IT\n' + d.project + '\n\n' : '') +
       (d.note ? 'BEFORE THE INTERVIEW\n' + d.note + '\n\n' : '') +
       (d.remember ? 'REMEMBER: ' + d.remember : '');
@@ -542,6 +604,53 @@
       ta.select(); try { document.execCommand('copy'); toast('Answer copied'); } catch (e) {}
       document.body.removeChild(ta);
     }
+  }
+
+  /* ---------- topic lookups ----------
+     Typing a subject rather than a question — "scenario based",
+     "coding round", "sql" — should list what is in it, not guess
+     at one answer from inside it.                                 */
+  var TOPIC_ALIAS = {
+    csharp:        ["c#", "c sharp", "csharp", "dotnet", ".net", "c# .net", "c# questions"],
+    solid:         ["solid", "oop", "oops", "design patterns", "principles"],
+    aspnet:        ["asp.net", "asp.net core", "web api", "api", "mvc", "ef core"],
+    adonet:        ["ado.net", "adonet", "ado"],
+    sql:           ["sql", "sql server", "database", "tsql", "t-sql", "db"],
+    jquery:        ["javascript", "js", "jquery", "javascript jquery"],
+    react:         ["react", "reactjs", "react.js", "hooks"],
+    azure:         ["azure", "devops", "cloud", "azure functions", "git"],
+    microservices: ["microservices", "microservice", "architecture"],
+    web:           ["html", "css", "typescript", "frontend", "html css"],
+    coding:        ["coding", "coding round", "programs", "dsa", "algorithms", "coding questions"],
+    scenario:      ["scenario", "scenario based", "scenarios", "situational", "real time", "scenario based questions"],
+    projects:      ["projects", "my projects", "project", "architecture questions"],
+    hr:            ["hr", "hr round", "behavioural", "behavioral", "hr questions"]
+  };
+
+  function matchTopic(q) {
+    var n = norm(q).replace(/\b(questions?|qa|q and a|interview|round|topics?|based)\b/g, " ").replace(/\s+/g, " ").trim();
+    if (!n || n.split(" ").length > 3) return null;
+    for (var k in TOPIC_ALIAS) {
+      if (TOPIC_ALIAS[k].indexOf(n) >= 0) return k;
+      if (norm(TOPICS[k].name) === n) return k;
+    }
+    return null;
+  }
+
+  function topicOverviewHTML(key) {
+    var t = TOPICS[key];
+    var list = DATA.filter(function (d) { return d.topic === key; });
+    var starred = list.filter(function (d) { return d.star; });
+    var show = (starred.length >= 6 ? starred : list).slice(0, 14);
+    return "<div class=\"a-head\"><h2 class=\"a-title\">" + esc(t.name) + "</h2>" +
+      "<span class=\"a-chip\" style=\"color:" + t.color + ";border-color:" + t.color + "40;background:" + t.color + "14\">" +
+        list.length + " answers</span></div>" +
+      "<div class=\"a-lead\">Here is what I have on " + esc(t.name) + ". Pick one, or keep typing to search inside it.</div>" +
+      "<div class=\"rel-chips\">" + show.map(function (d) {
+        return "<button class=\"rel\" data-ask=\"" + esc(d.q) + "\">" + esc(d.q) + "</button>";
+      }).join("") + "</div>" +
+      "<div class=\"a-actions\"><button class=\"a-act\" data-topicjump=\"" + key + "\">" + ICON.grid +
+        "<span>Browse all " + list.length + "</span></button></div>";
   }
 
   /* ---------- ask ---------- */
@@ -560,6 +669,9 @@
     finishStream();
 
     row('user', 'N', '<div class="q-text">' + esc(q) + '</div>');
+
+    // a subject rather than a question -> show what is in that topic
+    var topicHit = activeTopic ? null : matchTopic(q);
 
     var t0 = performance.now();
     var res = search(q, activeTopic);
@@ -584,7 +696,11 @@
     setTimeout(function () {
       var holder = loading.querySelector('.body');
       holder.innerHTML = '';                 // drop the typing dots
-      if (!res.length) {
+      if (topicHit) {
+        holder.innerHTML = topicOverviewHTML(topicHit);
+        pushRecent(q);
+        streamIn(holder);
+      } else if (!res.length) {
         // genuinely nothing — offer the best starting points rather than a dead end
         var picks = DATA.filter(function (d) { return d.star; }).slice(0, 6);
         holder.innerHTML = '<div class="nores"><p>Nothing in the library matches <b>' + esc(q) +
@@ -624,47 +740,89 @@
     }, 140);
   }
 
-  /* ---------- reveal the answer a block at a time ----------
-     Not fake slowness: the whole thing lands in ~450 ms, and one
-     click anywhere finishes it immediately.                      */
-  var streamTimers = [];
+  /* ---------- streaming ----------
+     Reveals the reply word by word, the way an assistant answers.
+     Every text node is split into word spans once, then revealed in
+     batches on animation frames. A click anywhere finishes it.
+     Whole thing lands inside ~700 ms however long the answer is.   */
+  var streamRaf = null, streamWords = [], streamIdx = 0, streamCaret = null, streamGuard = null;
+
   function finishStream() {
-    streamTimers.forEach(clearTimeout);
-    streamTimers = [];
-    Array.prototype.forEach.call(document.querySelectorAll('.stream-hidden'), function (el) {
-      el.classList.remove('stream-hidden');
+    clearTimeout(streamGuard);
+    if (streamRaf) cancelAnimationFrame(streamRaf);
+    streamRaf = null;
+    for (var i = streamIdx; i < streamWords.length; i++) streamWords[i].classList.remove("w-off");
+    streamWords = []; streamIdx = 0;
+    if (streamCaret && streamCaret.parentNode) streamCaret.parentNode.removeChild(streamCaret);
+    streamCaret = null;
+  }
+
+  function collectWords(root) {
+    var out = [];
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) {
+        if (!n.nodeValue || !n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+        if (n.parentNode.closest("pre, .a-actions, .a-rel, .rel-chips, .cmp-table, figcaption")) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
     });
-    var c = document.querySelector('.caret');
-    if (c) c.remove();
+    var nodes = [], n;
+    while ((n = walker.nextNode())) nodes.push(n);
+
+    nodes.forEach(function (node) {
+      var parts = node.nodeValue.split(/(\s+)/);
+      var frag = document.createDocumentFragment();
+      parts.forEach(function (p) {
+        if (!p) return;
+        if (/^\s+$/.test(p)) { frag.appendChild(document.createTextNode(p)); return; }
+        var sp = document.createElement("span");
+        sp.className = "w w-off";
+        sp.textContent = p;
+        frag.appendChild(sp);
+        out.push(sp);
+      });
+      node.parentNode.replaceChild(frag, node);
+    });
+    return out;
   }
 
   function streamIn(holder) {
     finishStream();
-    var blocks = Array.prototype.slice.call(holder.children);
-    if (blocks.length < 2) return;
-
-    var caret = document.createElement('span');
-    caret.className = 'caret';
-
-    blocks.forEach(function (b, i) {
-      if (i === 0) return;                       // the heading lands straight away
-      b.classList.add('stream-hidden');
+    // blocks that are not word-streamed fade in as units
+    Array.prototype.forEach.call(holder.querySelectorAll("pre, .cmp-wrap, .a-rel, .rel-chips, .a-actions"), function (el) {
+      el.classList.add("blk-off");
     });
 
-    blocks[0].appendChild(caret);
-    var step = Math.min(42, Math.max(16, 260 / blocks.length));
+    streamWords = collectWords(holder);
+    streamIdx = 0;
+    if (!streamWords.length) { holder.querySelectorAll(".blk-off").forEach(function (e) { e.classList.remove("blk-off"); }); return; }
 
-    blocks.forEach(function (b, i) {
-      if (i === 0) return;
-      streamTimers.push(setTimeout(function () {
-        b.classList.remove('stream-hidden');
-        b.classList.add('stream-in');
-        if (caret.parentNode) b.appendChild(caret);
-        if (i === blocks.length - 1) {
-          streamTimers.push(setTimeout(function () { if (caret.parentNode) caret.remove(); }, 150));
-        }
-      }, i * step));
-    });
+    streamCaret = document.createElement("span");
+    streamCaret.className = "caret";
+
+    var total = streamWords.length;
+    var frames = 34;                              // ~560 ms at 60fps
+    var perFrame = Math.max(3, Math.ceil(total / frames));
+
+    function tick() {
+      var end = Math.min(streamIdx + perFrame, total);
+      for (; streamIdx < end; streamIdx++) streamWords[streamIdx].classList.remove("w-off");
+      var last = streamWords[streamIdx - 1];
+      if (last && last.parentNode) last.parentNode.insertBefore(streamCaret, last.nextSibling);
+      if (streamIdx < total) { streamRaf = requestAnimationFrame(tick); return; }
+      streamRaf = null;
+      Array.prototype.forEach.call(holder.querySelectorAll(".blk-off"), function (el, i) {
+        setTimeout(function () { el.classList.remove("blk-off"); }, i * 45);
+      });
+      setTimeout(function () {
+        if (streamCaret && streamCaret.parentNode) streamCaret.parentNode.removeChild(streamCaret);
+        streamCaret = null;
+      }, 160);
+    }
+    streamRaf = requestAnimationFrame(tick);
+    // rAF pauses in a background tab - never leave words invisible
+    clearTimeout(streamGuard);
+    streamGuard = setTimeout(finishStream, 1500);
   }
 
   /* ---------- recents ---------- */

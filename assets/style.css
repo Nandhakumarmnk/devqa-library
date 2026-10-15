@@ -870,3 +870,150 @@ pre code{background:none;border:0;padding:0;color:var(--ink);font-size:12.6px;li
   .cmp-table{ font-size:12.4px; min-width:360px; }
   .cmp-table th, .cmp-table td{ padding:7px 9px; }
 }
+
+/* ============================================================
+   Assistant-style answer — prose, not a reference card
+   ============================================================ */
+.thread{ scroll-padding-bottom:120px; }
+.wrap{ max-width:764px; }
+
+/* the reply reads as one piece of writing */
+.a-head{ display:flex; align-items:flex-start; gap:12px; margin:0 0 14px; }
+.a-title{
+  margin:0; font-size:21px; line-height:1.3; font-weight:650;
+  letter-spacing:-.35px; color:var(--ink); flex:1; text-wrap:balance;
+}
+.a-chip{
+  flex:0 0 auto; margin-top:3px; font-size:10.5px; font-weight:700;
+  letter-spacing:.4px; text-transform:uppercase; padding:3px 9px;
+  border-radius:20px; border:1px solid; white-space:nowrap;
+}
+
+.a-lead{
+  font-size:16.2px; line-height:1.72; color:var(--ink-2);
+  margin:0 0 22px; padding-bottom:18px; border-bottom:1px solid var(--line-soft);
+}
+.a-lead p{ margin:0 0 10px; }
+.a-lead p:last-child{ margin-bottom:0; }
+
+.a-h{
+  margin:26px 0 10px; font-size:13.4px; font-weight:700;
+  letter-spacing:.2px; color:var(--ink);
+}
+.a-h:first-child{ margin-top:0; }
+
+.a-body{ font-size:15.6px; line-height:1.75; color:var(--ink); }
+.a-body p{ margin:0 0 13px; }
+.a-body p:last-child{ margin-bottom:0; }
+.a-body ul{ margin:10px 0 14px; padding-left:20px; }
+.a-body li{ margin-bottom:8px; line-height:1.68; }
+.a-body li::marker{ color:var(--ink-3); }
+.a-body b{ font-weight:650; color:var(--ink); }
+
+/* key points: a plain numbered list, no chips or boxes */
+.a-kp{ margin:0; padding-left:20px; font-size:15.2px; line-height:1.68; }
+.a-kp li{ margin-bottom:8px; padding-left:3px; }
+.a-kp li::marker{ color:var(--accent); font-weight:700; }
+
+/* code with a real header, like every assistant ships */
+.a-code{ margin:16px 0 20px; border:1px solid var(--line); border-radius:11px; overflow:hidden; }
+.a-code figcaption{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:7px 13px; background:var(--panel-2); border-bottom:1px solid var(--line);
+}
+.a-lang{ font-size:11px; letter-spacing:.7px; text-transform:uppercase; color:var(--ink-3); font-weight:700; }
+.a-copycode{
+  background:none; border:0; color:var(--ink-3); cursor:pointer;
+  font-size:11.5px; padding:2px 6px; border-radius:6px;
+}
+.a-copycode:hover{ color:var(--ink); background:var(--chip); }
+.a-code pre{ margin:0; border:0; border-radius:0; background:var(--bg-2); padding:14px 15px; }
+
+/* a quiet left rule instead of a tinted box */
+.a-note{
+  font-size:15.2px; line-height:1.72; color:var(--ink-2);
+  border-left:2px solid color-mix(in srgb,var(--warn) 55%,transparent);
+  padding:2px 0 2px 15px; margin:0;
+}
+.a-note.tip{ border-left-color:color-mix(in srgb,var(--accent-2) 60%,transparent); }
+.a-note p{ margin:0 0 9px; }
+.a-note p:last-child{ margin-bottom:0; }
+
+.a-remember{
+  margin:24px 0 0; padding-top:15px; border-top:1px solid var(--line-soft);
+  font-size:14.2px; color:var(--ink-2); line-height:1.6;
+}
+.a-remember b{ color:var(--ink); font-weight:650; }
+
+/* actions sit quietly until you hover the message */
+.a-actions{ display:flex; align-items:center; gap:4px; margin-top:16px; }
+.a-act{
+  display:inline-flex; align-items:center; gap:6px;
+  background:none; border:0; color:var(--ink-3); cursor:pointer;
+  font-size:12.3px; padding:6px 9px; border-radius:8px; transition:.14s;
+}
+.a-act:hover{ background:var(--panel-2); color:var(--ink); }
+.a-act.on{ color:var(--accent); }
+.a-ms{ margin-left:auto; font-size:10.5px; color:var(--ink-3); opacity:0; transition:.2s; font-variant-numeric:tabular-nums; }
+.row.bot:hover .a-ms{ opacity:.8; }
+
+.a-rel{ margin-top:22px; padding-top:16px; border-top:1px solid var(--line-soft); }
+.a-rel .a-h{ margin-top:0; }
+
+/* word-by-word streaming */
+.w{ transition:opacity .16s ease; }
+.w-off{ opacity:0; }
+.blk-off{ opacity:0; transform:translateY(4px); }
+pre, .cmp-wrap, .a-rel, .a-actions{ transition:opacity .22s ease, transform .22s ease; }
+
+/* the old card chrome is gone */
+.block, .block-label, .say, .proj-box, .remember, .ans-head, .ans-title,
+.ans-actions, .act, .badge, .score, .tags, .tag, .kp-list, .keypts{ all:revert; }
+
+@media (max-width:760px){
+  .a-title{ font-size:18.5px; }
+  .a-lead{ font-size:15.3px; }
+  .a-body, .a-note{ font-size:15px; }
+  .a-kp{ font-size:14.6px; }
+  .a-act span{ display:none; }
+  .a-act{ padding:9px 11px; }
+}
+
+/* comparison table inside the new prose layout */
+.cmp-wrap{ margin:10px 0 18px; }
+.cmp-table thead th{ background:var(--panel-2); }
+
+/* ---------- the spoken script ---------- */
+.a-script{
+  margin:0 0 4px; padding:14px 16px 14px 18px;
+  background:color-mix(in srgb,var(--accent) 7%,var(--panel));
+  border:1px solid color-mix(in srgb,var(--accent) 22%,var(--line));
+  border-left:3px solid var(--accent);
+  border-radius:10px;
+  font-size:15.6px; line-height:1.78; color:var(--ink);
+}
+.a-script p{ margin:0 0 11px; }
+.a-script p:last-child{ margin-bottom:0; }
+
+/* ---------- what they ask next ---------- */
+.a-fu{ margin:0; }
+.a-fu dt{
+  font-size:14.4px; font-weight:650; color:var(--ink);
+  margin:14px 0 5px; padding-left:19px; position:relative;
+}
+.a-fu dt:first-child{ margin-top:0; }
+.a-fu dt::before{
+  content:"Q"; position:absolute; left:0; top:1px;
+  font-size:10.5px; font-weight:800; color:var(--accent-2);
+  background:color-mix(in srgb,var(--accent-2) 16%,transparent);
+  width:14px; height:14px; border-radius:4px; display:grid; place-items:center;
+}
+.a-fu dd{
+  margin:0 0 0 19px; font-size:14.6px; line-height:1.68; color:var(--ink-2);
+}
+
+@media (max-width:760px){
+  .a-script{ font-size:15px; padding:12px 13px 12px 15px; }
+  .a-fu dt{ font-size:14px; }
+  .a-fu dd{ font-size:14.2px; }
+}
