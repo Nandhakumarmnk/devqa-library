@@ -62,6 +62,23 @@ tags rather than `fetch`, specifically so the page works straight from the files
 - **Dark and light themes**, following your system setting by default
 - `/` focuses the search box, `Ctrl+B` hides or shows the sidebar; `index.html#q=solid` deep-links to an answer
 
+## Voice search
+
+Off by default. Turn it on in the sidebar, then click the mic (or press
+**Ctrl+M**) and speak the question — the words appear as you talk and the
+answer loads when you stop. Voice in, text out.
+
+Two things worth knowing, which is why it is opt-in:
+
+- **It is the one feature that uses the network.** The browser transcribes
+  speech through its vendor's online service. The answers themselves still
+  come from the local files, and the footer text changes to say so while
+  voice is on.
+- **It needs a secure page.** It works on the published `https://` link and
+  on `localhost`, but not on a file opened straight from disk — Chrome
+  blocks microphone access there. Opening `index.html` by double-clicking
+  will show the mic, and clicking it explains why it cannot run.
+
 ## How the search works
 
 There is no model and no API call. On load, every answer is indexed by its title

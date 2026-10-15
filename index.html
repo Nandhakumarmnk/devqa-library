@@ -46,6 +46,10 @@
         <svg viewBox="0 0 24 24" width="15" height="15"><path d="M4 5h6v14H4zM14 5h6v14h-6z" stroke="currentColor" stroke-width="1.7" fill="none"/></svg>
         Browse library
       </button>
+      <button class="foot-btn" id="voiceBtn">
+        <svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg>
+        <span id="voiceTxt">Voice search: off</span>
+      </button>
       <button class="foot-btn" id="themeBtn">
         <svg viewBox="0 0 24 24" width="15" height="15"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" stroke="currentColor" stroke-width="1.7" fill="none"/></svg>
         <span id="themeTxt">Light mode</span>
@@ -101,12 +105,22 @@
 
           <div class="composer-bar">
             <div class="composer-left">
+              <button class="mic" id="micBtn" hidden title="Speak your question (Ctrl+M)" aria-label="Voice search">
+                <svg viewBox="0 0 24 24" width="15" height="15">
+                  <path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z" fill="currentColor"/>
+                  <path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+                </svg>
+              </button>
               <button class="scope-pill" id="scopePill" title="Current topic — click to clear">
                 <span class="dot" id="scopeDot"></span>
                 <span id="scopeTxt">All topics</span>
                 <svg class="scope-x" viewBox="0 0 24 24" width="12" height="12"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
               </button>
-              <span class="kbd-hint"><kbd>&#8629;</kbd> send<span class="sep-dot">·</span><kbd>&#8679;&#8629;</kbd> new line</span>
+              <span class="kbd-hint" id="kbdHint"><kbd>&#8629;</kbd> send<span class="sep-dot">·</span><kbd>&#8679;&#8629;</kbd> new line</span>
+              <span class="listening-note" id="listeningNote" hidden>
+                <span class="bars"><i></i><i></i><i></i><i></i></span>
+                Listening… speak your question
+              </span>
             </div>
             <button class="send" id="send" title="Search" disabled aria-label="Search">
               <svg viewBox="0 0 24 24" width="17" height="17"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>

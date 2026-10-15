@@ -746,6 +746,139 @@
   /* ---------- debug + extension hook ---------- */
   window.DevQA = { data: DATA, search: search, ask: ask, topics: TOPICS };
 
+  /* ============================================================
+     Voice search — speak the question, read the answer.
+
+     Honest note, and the reason this is opt-in and off by default:
+     the browser's SpeechRecognition sends the audio to the vendor's
+     speech service, so using it is the one part of this app that
+     touches the network. Everything else stays local. It also needs
+     a secure context, so it works on https:// and localhost but not
+     on a file:// page opened straight from disk.
+     ============================================================ */
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var recog = null, listening = false;
+  var voiceOn = LS.get('voice', false);
+
+  function voiceSupported() {
+    return !!SR && (window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+  }
+
+  function voiceUnavailableReason() {
+    if (!SR) return 'This browser has no speech recognition. Chrome or Edge will do it.';
+    if (!window.isSecureContext) return 'Voice needs a secure page. Open the published https:// link — a file opened from disk cannot use the microphone.';
+    return '';
+  }
+
+  function paintVoice() {
+    var btn = $('voiceBtn'), txt = $('voiceTxt'), mic = $('micBtn');
+    if (!btn) return;
+    btn.classList.toggle('on', voiceOn);
+    txt.textContent = 'Voice search: ' + (voiceOn ? 'on' : 'off');
+    mic.hidden = !voiceOn;
+    // keep the footer claim honest: voice is the one thing that uses the network
+    var hint = document.querySelector('.composer-hint');
+    if (hint) {
+      hint.firstChild.nodeValue = voiceOn
+        ? 'Answers run locally · only voice transcription uses the network · '
+        : 'Runs fully offline on your machine · no internet, no API, no cost · ';
+    }
+  }
+
+  function setListening(on) {
+    listening = on;
+    $('micBtn').classList.toggle('listening', on);
+    $('composerShell').classList.toggle('listening', on);
+    var hint = $('kbdHint');
+    if (hint) hint.hidden = on;
+    var note = $('listeningNote');
+    if (note) note.hidden = !on;
+    if (!on) input.classList.remove('interim');
+  }
+
+  function startListening() {
+    if (listening) { stopListening(); return; }
+    var reason = voiceUnavailableReason();
+    if (reason) { toast(reason); return; }
+
+    recog = new SR();
+    recog.lang = 'en-IN';            // Indian English; falls back sensibly
+    recog.interimResults = true;     // show words as they are recognised
+    recog.continuous = false;        // one question, then stop
+    recog.maxAlternatives = 1;
+
+    var finalText = '';
+
+    recog.onstart = function () { setListening(true); };
+
+    recog.onresult = function (e) {
+      var interim = '';
+      for (var i = e.resultIndex; i < e.results.length; i++) {
+        var t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += t;
+        else interim += t;
+      }
+      input.value = (finalText + interim).trim();
+      input.classList.toggle('interim', !finalText && !!interim);
+      autosize();
+      syncSend();
+    };
+
+    recog.onerror = function (e) {
+      setListening(false);
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        toast('Microphone blocked. Allow it in the address bar, then try again.');
+      } else if (e.error === 'no-speech') {
+        toast('Did not catch that — try again.');
+      } else if (e.error === 'network') {
+        toast('Speech service unreachable. Voice needs internet; the answers do not.');
+      } else if (e.error !== 'aborted') {
+        toast('Voice error: ' + e.error);
+      }
+    };
+
+    recog.onend = function () {
+      setListening(false);
+      input.classList.remove('interim');
+      var said = input.value.trim();
+      if (said) { ask(said); }        // heard something -> answer it
+    };
+
+    try { recog.start(); }
+    catch (err) { setListening(false); toast('Could not start the microphone.'); }
+  }
+
+  function stopListening() {
+    if (recog) { try { recog.stop(); } catch (e) {} }
+  }
+
+  $('voiceBtn').onclick = function () {
+    if (!voiceOn) {
+      var reason = voiceUnavailableReason();
+      if (reason) { toast(reason); return; }
+      voiceOn = true;
+      toast('Voice on. Note: speech is transcribed by the browser’s online service — the answers stay local.');
+    } else {
+      voiceOn = false;
+      stopListening();
+    }
+    LS.set('voice', voiceOn);
+    paintVoice();
+  };
+
+  $('micBtn').onclick = startListening;
+
+  document.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'm' || e.key === 'M')) {
+      e.preventDefault();
+      if (voiceOn) startListening(); else toast('Turn on Voice search in the sidebar first.');
+    }
+    if (e.key === 'Escape' && listening) stopListening();
+  });
+
+  paintVoice();
+
+
   /* ---------- rotating placeholder ---------- */
   var PLACEHOLDERS = [
     'Ask anything…',
