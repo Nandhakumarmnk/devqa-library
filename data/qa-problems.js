@@ -205,6 +205,17 @@ window.QA_PROBLEMS = [
   "how do we share session across multiple servers",
   "session is lost after an app pool recycle" ] },
 
+{ id: "sql-tran-log", p: [
+  "the transaction log for database is full",
+  "my ldf log file is huge and keeps growing",
+  "error 9002 log full",
+  "the log file filled the disk" ] },
+
+{ id: "sql-ddl-changes", p: [
+  "someone changed a stored procedure and i do not know who",
+  "how do i find what schema changed last week",
+  "a procedure was altered directly in production" ] },
+
 /* ---------- security ---------- */
 { id: "ado-injection", p: [
   "the security audit found sql injection",

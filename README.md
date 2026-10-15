@@ -6,7 +6,7 @@ Type a keyword — `solid`, `index`, `useEffect`, `jwt`, `middleware` — and th
 is on screen in a couple of milliseconds. No server, no build step, no API key, no
 internet connection, and nothing to install.
 
-**291 answers** across twelve topics, each one written in the same four layers:
+**293 answers** across twelve topics, each one written in the same four layers:
 
 | Block | What it gives you |
 |---|---|
@@ -36,7 +36,7 @@ tags rather than `fetch`, specifically so the page works straight from the files
 | OOP & SOLID | 18 | all five principles with examples, the four pillars, repository, factory, strategy, code review |
 | ASP.NET Core / API | 25 | middleware pipeline, REST design, JWT, claims, DI lifetimes, EF Core, SignalR, OWASP fixes |
 | ADO.NET | 23 | connected vs disconnected, the Execute methods, stored procedures, transactions, SqlBulkCopy, DBNull, connection pooling |
-| SQL Server | 44 | indexing and B-tree internals, execution plans, query tuning, joins, window functions, transactions, deadlocks, cursors, dynamic SQL, OPENQUERY and linked servers, collation, permissions, HA |
+| SQL Server | 46 | indexing and B-tree internals, execution plans, query tuning, joins, window functions, transactions, deadlocks, cursors, dynamic SQL, OPENQUERY and linked servers, collation, permissions, HA |
 | JavaScript & jQuery | 21 | closures, `this`, promises, event delegation, `==` vs `===`, debounce, array methods |
 | React.js | 21 | hooks, props vs state, keys, controlled forms, memoisation, routing, reusable component design |
 | Azure & Functions | 17 | triggers and bindings, hosting plans, Durable Functions, Key Vault, CI/CD, scaling |
@@ -101,7 +101,7 @@ bounded Damerau-Levenshtein distance (how far wrong a word may be scales with it
 length), and a described symptom is matched by how much of a known problem phrase it
 covers. There is always a best answer — the page never dead-ends on "no results".
 
-Searching all 291 answers takes about 2 ms, which the footer reports live.
+Searching all 293 answers takes about 2 ms, which the footer reports live.
 
 ## Add your own questions
 
