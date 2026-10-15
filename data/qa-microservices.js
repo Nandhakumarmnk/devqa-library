@@ -98,7 +98,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "ms-docker", topic: "microservices",
   q: "What is Docker and why containerise a .NET app?",
-  tags: ["docker", "container", "dockerfile", "image", "containerize .net"],
+  tags: ["docker", "container", "dockerfile", "image", "containerize .net", "image vs container vs registry", "docker registry"],
   simple: "A container packages the app with everything it needs to run, so it behaves the same on your laptop, in test and in production. It is much lighter than a virtual machine.",
   answer: "An image is the immutable package built from a Dockerfile; a container is a running instance. Containers share the host kernel, so they start in seconds and use far less memory than VMs.\nFor .NET the standard pattern is a multi-stage Dockerfile: build and publish with the SDK image, then copy the output into the much smaller ASP.NET runtime image.\nBenefits: identical environments, no it-works-on-my-machine, easy horizontal scaling, and a clean dependency boundary. Practical points: keep images small, do not bake secrets into the image, run as a non-root user, and pass configuration through environment variables.",
   code: "FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build\nWORKDIR /src\nCOPY . .\nRUN dotnet publish -c Release -o /app\n\nFROM mcr.microsoft.com/dotnet/aspnet:8.0\nWORKDIR /app\nCOPY --from=build /app .\nENTRYPOINT [\"dotnet\", \"VendorPortal.Api.dll\"]",

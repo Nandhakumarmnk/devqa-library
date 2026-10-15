@@ -300,6 +300,17 @@ window.QA = (window.QA || []).concat([
   code: "CREATE TRIGGER TR_PurchaseOrder_Audit\nON PurchaseOrder AFTER UPDATE\nAS\nBEGIN\n    SET NOCOUNT ON;\n    INSERT INTO PurchaseOrderAudit (PoId, OldStatus, NewStatus, ChangedBy, ChangedOn)\n    SELECT i.PoId, d.Status, i.Status, i.ModifiedBy, GETDATE()\n    FROM   inserted i\n    JOIN   deleted  d ON d.PoId = i.PoId\n    WHERE  ISNULL(i.Status,'') <> ISNULL(d.Status,'');   -- only real changes\nEND\n\n-- temporal alternative\nSELECT * FROM PurchaseOrder\nFOR SYSTEM_TIME AS OF '2026-10-01T09:00:00';",
   project: "Document and purchase-order status history is audited this way on our platform, so the trail exists even when a release script updates rows directly. The application stamps the user id on the row, which is what lets the trigger record who rather than just what.",
   remember: "Trigger + audit table for who/what/when. Temporal for point-in-time. The database does not know your end user — pass it in."
+},
+
+{
+  id: "sql-nolock", topic: "sql", star: true,
+  q: "What is wrong with WITH (NOLOCK)?",
+  tags: ["nolock", "with nolock", "read uncommitted", "dirty read", "nolock problems", "blocking workaround"],
+  simple: "NOLOCK is not a performance setting — it is read uncommitted. It lets you read data that was never committed, and it can return a row twice or skip one entirely. People sprinkle it to stop blocking and quietly get wrong numbers.",
+  answer: "`WITH (NOLOCK)` is READ UNCOMMITTED for that table. What it actually allows:\n- **Dirty reads** — you see rows from a transaction that later rolls back. The number you reported never existed.\n- **Missing and duplicated rows** — this is the part most people do not know. If a page split happens mid-scan, a row can be read twice or skipped, even for rows nobody is modifying.\n- It still takes a schema stability lock, so it is not lock-free.\nThe reason it spreads is that it *appears* to fix blocking. It does not fix the blocking — it just stops waiting for it, and the blocking is still there slowing everything else down.\n**What to do instead:**\n- Fix the underlying query, since blocking usually comes from a long transaction or a scan locking far more rows than a seek would.\n- Turn on **READ COMMITTED SNAPSHOT** on the database — readers get a consistent committed version without blocking writers. It costs tempdb version store space and is almost always the right answer.\n- Keep write transactions short.\n**Where I would accept it**: a rough operational count on a non-critical dashboard, where approximate is genuinely fine and everyone knows it. Never on anything financial, anything that feeds a decision, or anything a user will reconcile against.",
+  code: "-- the habit to break\nSELECT COUNT(*) FROM PurchaseOrder WITH (NOLOCK);\n\n-- the fix, once, at database level\nALTER DATABASE Procurement SET READ_COMMITTED_SNAPSHOT ON;",
+  project: "This comes up when someone hits blocking on a busy screen and reaches for the quick fix. On the procurement modules the real causes were long transactions and scans caused by missing indexes — tightening those removed the blocking properly, which is the fix NOLOCK only pretends to be.",
+  remember: "NOLOCK = dirty reads, plus rows read twice or skipped. Use READ COMMITTED SNAPSHOT, and fix the real query."
 }
 
 ]);

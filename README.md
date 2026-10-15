@@ -6,7 +6,7 @@ Type a keyword — `solid`, `index`, `useEffect`, `jwt`, `middleware` — and th
 is on screen in a couple of milliseconds. No server, no build step, no API key, no
 internet connection, and nothing to install.
 
-**238 answers** across twelve topics, each one written in the same four layers:
+**252 answers** across twelve topics, each one written in the same four layers:
 
 | Block | What it gives you |
 |---|---|
@@ -72,7 +72,7 @@ bounded Damerau-Levenshtein distance (how far wrong a word may be scales with it
 length), and a described symptom is matched by how much of a known problem phrase it
 covers. There is always a best answer — the page never dead-ends on "no results".
 
-Searching all 238 answers takes about 2 ms, which the footer reports live.
+Searching all 252 answers takes about 2 ms, which the footer reports live.
 
 ## Add your own questions
 

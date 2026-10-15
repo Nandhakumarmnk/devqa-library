@@ -37,7 +37,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-authn-authz", topic: "aspnet",
   q: "Authentication vs authorization (and role-based access control)",
-  tags: ["authentication vs authorization", "rbac", "role based access", "authorize attribute", "claims"],
+  tags: ["authentication vs authorization", "rbac", "role based access", "authorize attribute", "claims", "idor", "insecure direct object reference", "broken object level authorization"],
   simple: "Authentication = who are you. Authorization = what are you allowed to do. 401 means you did not prove who you are; 403 means you did, and you still cannot.",
   answer: "Authentication establishes identity — cookie, JWT, or ASP.NET Identity against the user store. Authorization decides access using roles, claims or policies.\nRBAC in practice: users get roles, roles get permissions, and endpoints declare what they need — `[Authorize(Roles = \"Admin\")]` or a policy like `RequireClaim(\"Permission\",\"PO.Approve\")`. Policies are better than roles once rules get finer than job titles.\nTwo rules I enforce: check on the server for every request (hiding a button is not security), and check ownership too — a vendor passing someone else's document id must get 403, not the document. That broken-object-level-authorization case is an OWASP item and a very common real bug.",
   code: "[Authorize(Policy = \"CanApprovePo\")]\npublic async Task<IActionResult> Approve(int id)\n{\n    var po = await _repo.GetAsync(id);\n    if (po.VendorId != User.VendorId()) return Forbid();   // ownership check\n    ...\n}",
@@ -190,7 +190,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-iis", topic: "aspnet",
   q: "How do you deploy and host a .NET application on IIS?",
-  tags: ["iis", "deployment", "app pool", "kestrel", "hosting", "ssl", "release"],
+  tags: ["iis", "deployment", "app pool", "kestrel", "hosting", "ssl", "release", "zero downtime deployment", "app_offline", "deployment slots"],
   simple: "Publish the app, drop it in a folder on the server, point an IIS site at it with its own app pool, bind HTTPS, and keep a way to put the old version back.",
   answer: "ASP.NET Core runs on Kestrel with IIS acting as a reverse proxy through the ASP.NET Core Module — IIS handles the ports, SSL and process management; Kestrel runs the app. The published folder plus `web.config` is what gets deployed.\nMy checklist: app pool set to No Managed Code for Core apps and a dedicated identity, HTTPS binding with a valid certificate and HSTS, `ASPNETCORE_ENVIRONMENT` set to Production, folder permissions for the pool identity, and a smoke test after the swap.\nI deploy in off-peak windows, take a backup of the current build and database first, apply database scripts before the app files, and keep the matching rollback script ready. Recycling or `app_offline.htm` handles the file lock during the swap.",
   project: "Release and deployment management is one of my responsibilities. I manage IIS hosting and SSL setup, deploy in scheduled off-peak windows with pre-tested rollback scripts, run post-deployment validation, and then support QA, UAT and business teams after go-live. Doing it in planned windows with a rehearsed rollback is how we meet the SLA commitments.",
@@ -270,6 +270,28 @@ window.QA = (window.QA || []).concat([
   code: "await _hub.Clients.Group(jobId)\n    .SendAsync(\"progress\", new { done = processed, total = rowCount });",
   project: "During a bulk data migration in the Vendor Portal the user had no idea how far it had reached. I added a SignalR hub for migration status, and the Hangfire job pushes its progress to that hub — so the page shows a live progress bar instead of the user pressing refresh and guessing.",
   remember: "Server pushes to the browser. Needs a backplane once you run more than one instance."
+},
+
+{
+  id: "net-refresh-token", topic: "aspnet", star: true,
+  q: "Why refresh tokens? How do you handle logout and revocation?",
+  tags: ["refresh token", "token revocation", "logout jwt", "token expiry", "revoke token", "jwt vs cookie authentication"],
+  simple: "A JWT cannot be cancelled before it expires, so you keep it short-lived. The refresh token is a second, longer-lived token that gets you a new one without making the user log in again.",
+  answer: "**The problem**: a JWT is stateless and self-validating. The server does not look it up anywhere, so there is no switch to turn it off. If it lasts 8 hours and is stolen, the attacker has 8 hours.\n**The pattern**: a short access token (5–15 minutes) plus a long-lived refresh token (days). When the access token expires, the client posts the refresh token to a refresh endpoint and gets a new pair.\n**The refresh token is the one you must control**, because it is the long-lived credential:\n- **Store it server-side** (hashed, like a password), so it *can* be revoked — that is the whole point of it.\n- **Rotate on every use**, and if an already-used token is presented again, treat it as theft and revoke the whole family.\n- Bind it to the device or client where you can, and give it an absolute expiry as well as a sliding one.\n**Logout** then means: delete the refresh token server-side and drop the access token on the client. The access token stays technically valid until it expires, which is exactly why it is short.\n**If you need instant revocation** — a sacked employee, a compromised account — you need server state regardless: a deny-list of token ids checked per request, or a token-version claim compared against the user record. Say that plainly rather than pretending JWT revocation is free.\n**JWT vs cookie auth**: a cookie session is revocable by deleting the server session and is HttpOnly so script cannot read it, but it needs shared session state to scale and CSRF protection. A JWT scales without shared state and avoids CSRF when sent in a header, at the cost of revocation. Neither is simply better.",
+  code: "// refresh: validate, rotate, re-issue\nvar stored = await _refresh.FindAsync(Hash(dto.RefreshToken));\nif (stored is null || stored.Revoked || stored.ExpiresOn < DateTime.UtcNow)\n    return Unauthorized();\n\nawait _refresh.RevokeAsync(stored);                 // rotate - single use\nvar pair = await _tokens.IssueAsync(stored.UserId); // new access + refresh\nreturn Ok(pair);",
+  project: "The Vendor Portal keeps access tokens short and attaches them through an axios interceptor, with a 401 sending the user back to login. That short lifetime is the practical control — it keeps the window small without pretending a stateless token can be cancelled.",
+  remember: "Short access token, revocable refresh token stored server-side and rotated. Instant revocation needs server state."
+},
+
+{
+  id: "net-crypto", topic: "aspnet", star: true,
+  q: "Hashing vs encryption, and symmetric vs asymmetric",
+  tags: ["hashing vs encryption", "symmetric vs asymmetric", "password hashing", "bcrypt", "aes rsa", "salt", "encryption basics"],
+  simple: "Hashing is one way — you can check a value but never get it back. Encryption is two way — it is meant to be reversed with a key. Passwords are hashed, data you need to read again is encrypted.",
+  answer: "**Hashing** is one-directional: same input gives the same hash, and you cannot reverse it. It is for verification — passwords, file integrity, signatures.\n- For **passwords** use a deliberately slow algorithm designed for it: bcrypt, scrypt, Argon2, or PBKDF2 (which is what ASP.NET Identity uses). Never plain SHA-256 or MD5 — they are fast, which is exactly what an attacker wants.\n- A **salt** (unique per user, stored alongside) stops precomputed rainbow tables and stops two users with the same password having the same hash.\n**Encryption** is reversible with a key, and is for data you must read back — connection strings, stored bank details, data in transit.\n- **Symmetric** (AES) — one key encrypts and decrypts. Fast, good for bulk data. The hard part is sharing the key safely.\n- **Asymmetric** (RSA, ECC) — a public key encrypts, a private key decrypts. Solves key distribution, but is slow for large payloads.\n- **TLS uses both**: asymmetric to agree a session key, then symmetric for the actual traffic, because that is the combination that is both safe and fast.\n**Encoding is neither.** Base64 is not security — it is reversible by anyone, and a JWT payload is encoded, not encrypted.\n**The practical rules**: never write your own crypto, never store a password you could read back, keep keys outside source control, and rotate them.",
+  code: "// password - ASP.NET Identity does salting + PBKDF2 for you\nvar result = await _userManager.CreateAsync(user, password);\n\n// wrong, every time\nvar bad = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(password)));",
+  project: "Our applications use ASP.NET Identity for credentials, so password hashing and salting are handled by the framework rather than hand-rolled. On the encryption side, the connection string in the BI application is encrypted in config and decrypted at startup — plain-text credentials in a deployed config were one of the categories in the security remediation work.",
+  remember: "Hash passwords (slow algorithm + salt), encrypt data you must read back. Symmetric is fast, asymmetric solves key sharing. Base64 is not encryption."
 }
 
 ]);

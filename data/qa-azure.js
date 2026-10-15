@@ -58,7 +58,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "az-idempotent", topic: "azure", star: true,
   q: "How do you make a background job or message handler reliable?",
-  tags: ["idempotency", "retry", "poison queue", "dead letter", "at least once delivery", "exactly once"],
+  tags: ["idempotency", "retry", "poison queue", "dead letter", "at least once delivery", "exactly once", "idempotent post", "idempotency key"],
   simple: "Assume the same message will arrive twice and that any step can fail halfway. Make running it twice harmless, retry the temporary failures, and park the ones that never succeed.",
   answer: "Queues give **at-least-once** delivery, so duplicates are a certainty, not an edge case. The protections:\n- **Idempotency** — key the operation on a business id and check whether it has already been processed, or use an upsert, so a repeat is a no-op.\n- **Retry with backoff** for transient faults (network, timeout, deadlock), and a cap so it does not loop forever.\n- **Poison queue / dead letter** after N attempts, plus an alert — a message that fails silently forever is worse than one that fails loudly.\n- **Transactional boundaries** — do the database work in one transaction, and record the processed marker in the same transaction.\n- **Monitoring** — queue depth, failure count and age of the oldest message.\nThe honest framing is that exactly-once delivery does not really exist; you get at-least-once delivery plus idempotent handlers.",
   project: "That is exactly how the SAP sync is built. Handlers are keyed on the document id so a retry cannot post the same invoice twice, transient failures retry automatically, and repeated failures raise an alert for someone to look at rather than disappearing. That design is what removed the manual reconciliation work between the two systems.",
@@ -188,6 +188,17 @@ window.QA = (window.QA || []).concat([
   code: "git checkout -b feature/vendor-bank-details\ngit commit -m \"Add vendor bank detail validation\"   # works offline\ngit fetch origin && git rebase origin/main\ngit push -u origin feature/vendor-bank-details",
   project: "We work in Git and Azure DevOps, with some older repositories still on TFS. Being comfortable in both is normal in enterprise .NET — a lot of long-lived systems have a TFVC history behind them, and new work goes into Git.",
   remember: "TFVC = central, checkout, heavy branching. Git = distributed, cheap branches, offline commits."
+},
+
+{
+  id: "az-git-undo", topic: "azure", star: true,
+  q: "git revert vs reset vs cherry-pick vs stash",
+  tags: ["git revert vs reset", "cherry pick", "git stash", "undo a commit", "git reset hard", "remove a commit", "undo changes git"],
+  simple: "revert undoes a commit by adding a new one. reset moves the branch pointer backwards and rewrites history. cherry-pick copies one commit onto another branch. stash parks uncommitted work out of the way.",
+  answer: "- **revert** — creates a *new* commit that undoes an earlier one. History is preserved, so it is the only safe way to undo something already pushed and shared.\n- **reset** — moves the branch pointer. `--soft` keeps the changes staged, `--mixed` (the default) keeps them in the working tree, `--hard` throws them away. It rewrites history, so it is for **local, unpushed** work only.\n- **cherry-pick** — replays one specific commit onto the current branch. The normal use is a hotfix made on main that also has to reach a release branch.\n- **stash** — parks uncommitted changes so you can switch branches, then `stash pop` brings them back. Easy to forget about, so `stash list` is worth a glance.\nThe rule that matters in a team: **never rewrite shared history**. Reset or rebase your own unpushed branch freely; once it is pushed and someone else may have pulled it, use revert.\nAnd `reset --hard` discards uncommitted work permanently — the one Git command worth pausing before you run.",
+  code: "git revert a1b2c3d            # safe undo of a pushed commit\ngit reset --soft HEAD~1      # undo the last local commit, keep changes staged\ngit reset --hard HEAD~1      # undo it and DISCARD the changes\ngit cherry-pick a1b2c3d      # copy one commit onto this branch\ngit stash && git stash pop   # park work, switch branch, bring it back",
+  project: "On a shared branch I use revert, and keep reset for tidying my own feature branch before raising the pull request. Cherry-pick comes up when a production hotfix on main also has to reach a release branch that is behind.",
+  remember: "Pushed? revert. Local only? reset. One commit elsewhere? cherry-pick. Park it? stash."
 }
 
 ]);

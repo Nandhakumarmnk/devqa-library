@@ -223,6 +223,17 @@ window.QA = (window.QA || []).concat([
   answer: "`undefined` is the default for a declared but unassigned variable, a missing object property, a missing function argument, and a function with no return.\n`null` is an explicit assignment meaning no value — typically what an API returns for an empty field.\n`typeof undefined` is 'undefined'; `typeof null` is 'object', a famous language bug.\n`null == undefined` is true but `null === undefined` is false, which is why `value == null` is the accepted idiom for checking both at once. Optional chaining `?.` and `??` are the modern way to handle them safely.",
   code: "let a;                 // undefined\nconst b = null;        // explicitly empty\nconst city = vendor?.address?.city ?? 'N/A';",
   remember: "undefined = never set. null = set to nothing on purpose."
+},
+
+{
+  id: "js-event-loop", topic: "jquery", star: true,
+  q: "Explain the JavaScript event loop",
+  tags: ["event loop", "call stack", "microtask queue", "settimeout order", "single threaded javascript", "async javascript"],
+  simple: "JavaScript runs one thing at a time. Slow work is handed to the browser, and when it finishes the callback waits in a queue until the current code is done. The event loop is what moves it from the queue onto the stack.",
+  answer: "JavaScript has **one call stack** — one thing executing at a time. Anything slow (a timer, a network call, a DOM event) is handed off to the browser's APIs, which run it outside the engine and put the callback on a queue when it is ready.\nThe **event loop** does one thing: when the call stack is empty, take the next callback and run it.\nThe detail interviewers probe is that there are **two queues with different priority**:\n- **Microtasks** — promise callbacks (`.then`, `await` continuations), `queueMicrotask`. Drained **completely** after the current script and before any macrotask.\n- **Macrotasks** — `setTimeout`, `setInterval`, DOM events, I/O. One per loop iteration.\nSo a resolved promise always runs before a `setTimeout(..., 0)`, even though the timeout looks like it should be immediate.\n**Why it matters practically**: a long synchronous loop blocks everything — no rendering, no clicks, a frozen page — because there is nowhere else for the work to go. That is also why `setTimeout(fn, 0)` is used to let the browser paint before continuing.",
+  code: "console.log('1');\nsetTimeout(() => console.log('2'), 0);     // macrotask\nPromise.resolve().then(() => console.log('3'));  // microtask\nconsole.log('4');\n\n// 1, 4, 3, 2  — microtasks drain before any timer fires",
+  project: "The practical version on our screens is keeping heavy work off the main thread's path — debouncing the search boxes, and letting the grid render before running the next batch, so a large result set does not freeze the page while it is being built.",
+  remember: "One stack. Microtasks (promises) drain before macrotasks (setTimeout). Blocking code freezes the page."
 }
 
 ]);
