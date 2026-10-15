@@ -406,6 +406,98 @@ window.QA = (window.QA || []).concat([
   code: "var createdOn = DateTimeOffset.UtcNow;          // unambiguous\n\n// display in the user's zone\nvar tz = TimeZoneInfo.FindSystemTimeZoneById(\"India Standard Time\");\nvar local = TimeZoneInfo.ConvertTime(createdOn, tz);\n\n// a birthday is a date, not an instant\npublic DateOnly DateOfBirth { get; set; }",
   project: "Document and audit timestamps are the place this matters for us — a document posted at a boundary has to have one unambiguous time whichever server or user is looking at it. The same rule applies to the Hangfire schedules: scheduled in UTC, because a CRON in local time shifts twice a year.",
   remember: "UtcNow on the server, store UTC, convert for display. DateTimeOffset when the offset matters."
+},
+
+{
+  id: "cs-class-object", topic: "csharp", star: true,
+  q: "What is a class and an object?",
+  tags: ["class and object", "what is a class", "what is an object", "instance", "oop basics", "class vs object"],
+  simple: "A class is the blueprint. An object is a thing built from that blueprint. One Vendor class, thousands of vendor objects, each with its own data.",
+  answer: "A **class** is a type definition — the fields, properties, methods and events a thing has. It is a template and occupies no memory of its own.\nAn **object** (an instance) is what `new` creates from that template on the heap. Each object has its own copy of the instance data and shares the class's code.\nThe parts of a class worth naming:\n- **Fields** — the data, normally private.\n- **Properties** — controlled access to that data.\n- **Methods** — the behaviour.\n- **Constructor** — runs on creation to put the object in a valid state.\n- **static** members — belong to the class, shared by all instances; `Vendor.Count` rather than `thisVendor.Count`.\nA class is a reference type, so a variable holds a reference to the object, not the object itself — which is why assigning one variable to another makes both point at the same instance.",
+  code: "public class Vendor                    // the blueprint\n{\n    private readonly List<string> _audit = new();   // field\n    public int Id { get; init; }                     // property\n    public string Name { get; set; }\n    public Vendor(int id, string name)               // constructor\n    { Id = id; Name = name; }\n    public bool IsApprovable() => !string.IsNullOrWhiteSpace(Name);   // method\n}\n\nvar v1 = new Vendor(1, \"Acme\");        // objects — separate data\nvar v2 = new Vendor(2, \"Globex\");",
+  remember: "Class = blueprint, no memory. Object = an instance on the heap with its own data."
+},
+
+{
+  id: "cs-constructor", topic: "csharp", star: true,
+  q: "What is a constructor? What types are there?",
+  tags: ["constructor", "default constructor", "parameterised constructor", "static constructor", "constructor chaining", "destructor finalizer"],
+  simple: "A constructor runs automatically when an object is created, and its job is to leave the object in a valid state. Same name as the class, no return type.",
+  answer: "- **Default** — no parameters. The compiler supplies one **only** if you declare no constructor at all; adding any constructor removes it.\n- **Parameterised** — takes the values the object needs. This is how you make invalid objects impossible to create.\n- **Static constructor** — runs once, automatically, before the type is first used. No access modifier, no parameters. For one-time type-level setup.\n- **Copy constructor** — takes an instance of the same type; you write it yourself in C# (records give you `with` instead).\n- **Private constructor** — blocks outside creation; used by singletons and static factory methods.\n**Chaining**: `: this(...)` calls another constructor in the same class, `: base(...)` calls the parent's. The base constructor always runs **first**, which is why calling a virtual method from a constructor is dangerous — the derived fields are not initialised yet.\n**Destructor / finalizer** (`~ClassName`) is the opposite end and is almost never what you want: it is non-deterministic, delays collection, and the right answer for cleanup is `IDisposable` plus `using`.",
+  code: "public class PurchaseOrder\n{\n    public PurchaseOrder(int vendorId)      // parameterised - the real one\n    {\n        if (vendorId <= 0) throw new ArgumentException(nameof(vendorId));\n        VendorId = vendorId;\n        CreatedOn = DateTime.UtcNow;\n    }\n    public PurchaseOrder() : this(0) { }    // chains to the one above\n    static PurchaseOrder() { /* once, before first use */ }\n}",
+  project: "Every service in our code takes its dependencies through a parameterised constructor into `private readonly` fields — that is both the DI pattern and the guarantee that a half-built service cannot exist.",
+  remember: "Runs on creation, same name, no return type. Declare one and you lose the free default."
+},
+
+{
+  id: "cs-property-field", topic: "csharp", star: true,
+  q: "Property vs field — and what are get/set, init and auto-properties?",
+  tags: ["property vs field", "auto property", "getter setter", "init only", "backing field", "encapsulation property"],
+  simple: "A field is a plain variable. A property looks like a variable from outside but is really a pair of methods, so you can validate, compute or make it read-only without changing how callers use it.",
+  answer: "A **field** stores data directly. A **property** exposes it through a `get` and optionally a `set`, which the compiler turns into methods.\nWhy that matters: a public field is a commitment you cannot take back. The day you need validation, logging or a computed value, changing a field to a property is a **binary breaking change** for any assembly compiled against it. So fields stay private and properties are the public surface.\nForms:\n- **Auto-property** — `public string Name { get; set; }` with a hidden backing field.\n- **Read-only** — `{ get; }`, settable only in the constructor.\n- **init-only** — `{ get; init; }` settable during object initialisation then frozen. The modern way to express immutability.\n- **Computed** — `public decimal Total => Qty * Rate;` with no stored value.\n- **Different accessibility** — `{ get; private set; }` is public to read, private to write.\nAlso: properties cannot be used as `ref`/`out` arguments, and data binding, serialisers and EF work with properties rather than fields.",
+  code: "public class PoLine\n{\n    private decimal _qty;\n    public decimal Qty                      // validated on the way in\n    {\n        get => _qty;\n        set => _qty = value < 0 ? throw new ArgumentException(\"Qty cannot be negative\") : value;\n    }\n    public decimal Rate { get; init; }      // set once, then frozen\n    public decimal Total => Qty * Rate;     // computed, nothing stored\n}",
+  remember: "Fields private, properties public. A public field cannot later become a property without breaking callers."
+},
+
+{
+  id: "cs-clr-jit", topic: "csharp", star: true,
+  q: "What is the CLR, IL and JIT? What does managed code mean?",
+  tags: ["clr", "jit", "il", "msil", "managed code", "cts cls", "common language runtime", "assembly dll", "bcl"],
+  simple: "Your C# is compiled to an intermediate language, not machine code. The CLR runs that, converting it to machine code as it goes and handling memory for you. Code the CLR manages is called managed code.",
+  answer: "The pipeline: **C# → compiler → IL** (intermediate language) packaged in an **assembly** (.dll or .exe) with its **metadata** and manifest. At run time the **CLR** loads it and the **JIT** compiles each method to native machine code the first time it is called, then caches it — so you pay the compilation cost once per method, and the JIT can optimise for the actual processor it is running on.\n**What the CLR gives you**: garbage collection, type safety, exception handling, security, and language interoperability.\n**Managed vs unmanaged**: managed code runs under the CLR with those guarantees. Unmanaged code — a C++ library, a COM component, a file handle — does not, which is exactly why `IDisposable` exists: the GC can clean up managed memory but knows nothing about an unmanaged resource.\nTerms that pair with it: **CTS** (the common type system all .NET languages share), **CLS** (the subset every language must support, so C# and VB.NET can interoperate), **BCL/FCL** (the built-in class libraries), and **AOT** compilation as the alternative to JIT when startup time matters.",
+  code: "// what actually ships is IL, not machine code:\n//   C#  ->  csc  ->  IL + metadata (assembly)  ->  CLR loads  ->  JIT  ->  native\n\n// managed memory: the GC handles it\nvar list = new List<int>();\n\n// unmanaged resource: you must release it\nusing var conn = new SqlConnection(cs);",
+  remember: "C# → IL → assembly → CLR loads → JIT compiles per method → native. Managed = the CLR looks after it."
+},
+
+{
+  id: "cs-namespace-assembly", topic: "csharp",
+  q: "What is a namespace and an assembly?",
+  tags: ["namespace", "assembly", "dll", "using directive", "nuget package", "project reference"],
+  simple: "A namespace is a naming folder that stops two classes called Vendor from clashing. An assembly is the actual compiled file — a .dll or .exe — that gets deployed.",
+  answer: "A **namespace** is compile-time organisation only. It groups related types and prevents name collisions; `using` just saves you typing the full name. Namespaces do not affect deployment and do not have to match assemblies — though matching them to folder structure is the convention everybody follows.\nAn **assembly** is the unit of deployment and versioning: a .dll or .exe containing IL, metadata and a manifest (its identity, version and dependencies). It is also the boundary that `internal` respects — `internal` means *this assembly*, which is why `InternalsVisibleTo` exists for test projects.\nIn practice: a solution has several projects, each compiling to one assembly, and a project reference or NuGet package is how one assembly uses another.\nSmall detail worth knowing: two different namespaces can live in one assembly, and one namespace can be spread across several assemblies — `System.Collections` is exactly that.",
+  code: "namespace Procurement.Vendors.Services;   // file-scoped, C# 10+\n\npublic class VendorService { }\n\n// elsewhere\nusing Procurement.Vendors.Services;       // just saves typing the full name",
+  remember: "Namespace = naming, compile time only. Assembly = the deployed .dll, and the boundary internal respects."
+},
+
+{
+  id: "cs-stack-heap", topic: "csharp", star: true,
+  q: "Stack vs heap — where does memory actually go?",
+  tags: ["stack vs heap", "memory allocation", "stack memory", "heap memory", "stack overflow", "memory management basics"],
+  simple: "The stack is a small, fast, strictly ordered area for method calls and local values. The heap is a large pool where objects live until the garbage collector removes them.",
+  answer: "**Stack** — one per thread, around 1 MB. It holds method call frames: parameters, local value-type variables, and the reference variables themselves. It is allocated and freed automatically as methods enter and exit, which makes it extremely fast and completely deterministic. Infinite recursion exhausts it and throws `StackOverflowException`, which cannot be caught.\n**Heap** — shared, large, and managed by the GC. Every `new` on a class goes here, and the stack holds the reference pointing to it.\nThe nuance worth stating, because it is the follow-up: it is not \"value types go on the stack\". **Where a value type lives depends on where it is declared.** A local `int` is on the stack; an `int` field inside a class object is on the heap inside that object; a captured variable in a closure or an async method moves onto the heap too.\nThe GC generations sit on the heap: Gen 0 collects often and cheaply, survivors are promoted to Gen 1 and Gen 2, and objects over about 85 KB go to the Large Object Heap, which is collected far less often.",
+  code: "void Example()\n{\n    int a = 5;                     // stack - local value type\n    var v = new Vendor();          // object on the heap, 'v' (the reference) on the stack\n    var big = new byte[100_000];   // Large Object Heap\n}   // stack frame disappears here; the heap objects wait for the GC",
+  remember: "Stack = call frames, automatic, fast. Heap = objects, GC-managed. Where a value type lives depends on where it is declared."
+},
+
+{
+  id: "cs-array-list", topic: "csharp",
+  q: "Array vs List — and what is a jagged array?",
+  tags: ["array vs list", "jagged array", "multidimensional array", "fixed size", "array basics", "list resize"],
+  simple: "An array is a fixed-size block decided when you create it. A List grows as you add to it, because it keeps an array inside and replaces it with a bigger one when it fills up.",
+  answer: "**Array** — fixed length, set at creation, zero-based, contiguous in memory, slightly faster to index and lighter in memory. Resizing means creating a new array and copying.\n**List&lt;T&gt;** — a wrapper around an array with `Add`, `Remove`, `Insert` and `Capacity`. When it runs out of room it allocates a new array at double the size and copies, so adding is amortised O(1) but has occasional expensive moments. Passing an expected size to the constructor avoids those copies.\n**Multidimensional `[,]`** — a true rectangle, every row the same length, one allocation.\n**Jagged `[][]`** — an array of arrays, so each row can differ in length. Usually faster than a rectangular array in .NET, and the form you see more often.\nMy default is `List<T>` for anything that grows, an array for fixed data and interop, and I return `IReadOnlyList<T>` rather than exposing a mutable list.",
+  code: "int[]   fixedSize = new int[5];            // length locked at 5\nvar     grow      = new List<int>(500);    // pre-sized, avoids re-allocation\n\nint[,]  grid      = new int[3, 4];          // rectangular - always 3 x 4\nint[][] jagged    = new int[3][];           // rows can differ\njagged[0] = new int[2];\njagged[1] = new int[7];",
+  remember: "Array fixed, List grows by doubling its internal array. Jagged = rows of different lengths."
+},
+
+{
+  id: "cs-oop-basics", topic: "csharp",
+  q: "What is method overloading, and what is a static vs instance member?",
+  tags: ["method overloading", "static vs instance", "static member", "instance member", "method signature", "basics overloading"],
+  simple: "Overloading is several methods with the same name but different parameters. A static member belongs to the class itself; an instance member belongs to each object.",
+  answer: "**Overloading** — same name, different parameter list (type, count or order). The compiler picks by the arguments at the call site, so it is compile-time polymorphism. **The return type alone is not enough** — two methods differing only by return type will not compile. Neither will two differing only by `ref`/`out` naming, though `ref` vs value does count.\n**Static vs instance:**\n- A **static** member belongs to the type. One copy exists, shared by everyone; it is called as `Math.Max(...)`, cannot use `this`, and cannot touch instance members.\n- An **instance** member belongs to each object and gets its own data.\nUse static for genuinely stateless helpers. The moment something needs configuration, a connection or test substitution it should be an injected instance instead — static is the enemy of both DI and unit tests, and static *mutable* state in a web app is a thread-safety bug waiting to be found.",
+  code: "public void Log(string msg) { }\npublic void Log(string msg, Exception ex) { }      // overload: different count\npublic void Log(int code) { }                      // overload: different type\n// public string Log(string msg) { }               // NOT an overload - return type only\n\npublic static decimal Round2(decimal d) => Math.Round(d, 2);   // stateless helper",
+  remember: "Overload = same name, different signature; return type does not count. Static = one copy on the type."
+},
+
+{
+  id: "cs-exception-types", topic: "csharp",
+  q: "What are the common exception types, and how do you make your own?",
+  tags: ["exception types", "custom exception", "nullreferenceexception", "argumentexception", "invalidoperationexception", "exception hierarchy"],
+  simple: "Everything derives from Exception. The ones you meet constantly are NullReference, ArgumentNull, InvalidOperation, FormatException and InvalidCast. You write your own when the caller needs to catch your specific failure.",
+  answer: "The hierarchy is `Exception` → `SystemException` and `ApplicationException` → everything else. The ones that actually turn up:\n- **NullReferenceException** — using a member on null. Almost always your bug, not an expected condition.\n- **ArgumentException / ArgumentNullException / ArgumentOutOfRangeException** — bad input; throw these yourself at the top of a method.\n- **InvalidOperationException** — the call is valid but the object is in the wrong state for it.\n- **FormatException**, **InvalidCastException**, **IndexOutOfRangeException**, **KeyNotFoundException**.\n- **DivideByZeroException** for integers; floating point gives you Infinity instead.\n- **TimeoutException**, **SqlException**, **DbUpdateConcurrencyException** from the infrastructure.\n**Custom exceptions**: derive from `Exception`, give it the three standard constructors, and only create one when a caller would genuinely `catch` it specifically — a domain error the API layer maps to a particular status code. Otherwise an existing type is clearer than a new one.\n**Do not** use exceptions for normal flow: they are expensive, and `TryParse`-style methods exist precisely so the common failure is not an exception.",
+  code: "public class SapUnavailableException : Exception\n{\n    public SapUnavailableException() { }\n    public SapUnavailableException(string message) : base(message) { }\n    public SapUnavailableException(string message, Exception inner) : base(message, inner) { }\n}\n\n// guard clauses at the top, before any work\nArgumentNullException.ThrowIfNull(dto);\nif (dto.Qty <= 0) throw new ArgumentOutOfRangeException(nameof(dto.Qty));",
+  project: "The document and SAP layers use a small set of domain exceptions that the global handler maps onto status codes — so the API returns a 409 or a 503 with a readable message instead of the controller parsing exception text to work out what went wrong.",
+  remember: "Throw Argument* for bad input, InvalidOperation for bad state. Custom only when someone will catch it specifically."
 }
 
 ]);

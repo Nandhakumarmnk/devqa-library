@@ -678,3 +678,195 @@ pre code{background:none;border:0;padding:0;color:var(--ink);font-size:12.6px;li
 
 #input.interim{ color:var(--ink-3); font-style:italic; }
 .foot-btn.on #voiceTxt{ color:var(--accent); }
+
+/* ---------- mode switch: text | voice ---------- */
+.mode-switch{
+  position:relative; display:flex; gap:2px; padding:3px;
+  background:var(--chip); border:1px solid var(--line); border-radius:11px; margin-bottom:2px;
+}
+.mode-glider{
+  position:absolute; top:3px; bottom:3px; left:3px; width:calc(50% - 3px);
+  background:var(--panel); border:1px solid var(--line); border-radius:8px;
+  transition:transform .22s cubic-bezier(.3,.8,.3,1), background .2s, border-color .2s;
+}
+.mode-switch.voice .mode-glider{
+  transform:translateX(100%);
+  background:linear-gradient(135deg, color-mix(in srgb,#f43f5e 22%,var(--panel)), color-mix(in srgb,#fb7185 18%,var(--panel)));
+  border-color:color-mix(in srgb,#f43f5e 45%,var(--line));
+}
+.mode-opt{
+  position:relative; z-index:1; flex:1;
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  background:none; border:0; cursor:pointer; padding:7px 4px;
+  font-size:12.3px; font-weight:600; color:var(--ink-3); transition:color .18s;
+}
+.mode-opt.active{ color:var(--ink); }
+.mode-switch.voice .mode-opt.active{ color:#fb7185; }
+
+/* a quiet banner while voice mode is live */
+.voice-bar{
+  display:flex; align-items:center; gap:8px;
+  max-width:820px; margin:0 auto 8px; padding:7px 14px;
+  background:color-mix(in srgb,#f43f5e 10%,transparent);
+  border:1px solid color-mix(in srgb,#f43f5e 26%,var(--line));
+  border-radius:12px; font-size:12px; color:var(--ink-2);
+}
+.voice-bar b{ color:#fb7185; }
+.voice-bar .spacer{ flex:1 }
+.voice-bar button{
+  background:none; border:0; color:var(--ink-3); cursor:pointer; font-size:11.5px; text-decoration:underline;
+}
+.voice-bar button:hover{ color:var(--ink); }
+
+/* ============================================================
+   Mobile — phone layout
+   ============================================================ */
+@media (max-width:760px){
+  /* sidebar becomes a slide-over with a dimmed backdrop */
+  .sidebar{
+    position:fixed; inset:0 auto 0 0; z-index:60; width:min(84vw,300px); flex-basis:auto;
+    transform:translateX(-102%); transition:transform .24s cubic-bezier(.3,.8,.3,1);
+    box-shadow:0 0 40px rgba(0,0,0,.45);
+  }
+  .sidebar.open{ transform:none; }
+  .app.nav-collapsed .sidebar{ width:min(84vw,300px); flex-basis:auto; padding:12px; opacity:1; pointer-events:auto; }
+  .app::after{
+    content:""; position:fixed; inset:0; background:rgba(0,0,0,.5);
+    opacity:0; pointer-events:none; transition:opacity .24s; z-index:55;
+  }
+  .app.side-open::after{ opacity:1; pointer-events:auto; }
+  .only-mobile{ display:grid; }
+
+  /* top bar: title + menu, the select moves out of the way */
+  .topbar{ height:50px; flex-basis:50px; padding:0 10px; gap:8px; }
+  .topbar-title{ font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .select{ max-width:124px; font-size:12px; padding:6px 8px; }
+  .progress-pill{ display:none; }
+
+  /* welcome: single column, smaller hero */
+  .welcome{ padding:26px 14px 6px; }
+  .hero-logo{ width:48px; height:48px; font-size:21px; border-radius:14px; margin-bottom:14px; }
+  .welcome h1{ font-size:21px; }
+  .hero-sub{ font-size:13.2px; margin-bottom:16px; }
+  .chips{ gap:6px; margin-bottom:20px; }
+  .chip{ font-size:12px; padding:6px 11px; }
+  .hero-grid{ grid-template-columns:1fr; gap:8px; }
+
+  /* answers */
+  .wrap{ padding:0 14px; }
+  .row{ padding:12px 0; }
+  .row.user .body{ max-width:88%; }
+  .ans-title{ font-size:15.5px; }
+  .msg{ gap:10px; }
+  .avatar{ width:26px; height:26px; flex-basis:26px; }
+  pre{ padding:10px 12px; }
+  pre code{ font-size:11.6px; }
+  .block{ margin-bottom:11px; }
+  .ans-actions .act{ padding:8px 12px; font-size:12.5px; }   /* bigger tap targets */
+  .rel{ padding:9px 13px; }
+
+  /* library: one column */
+  .library{ padding:16px 14px 30px; }
+  .lib-head{ gap:10px; }
+  .lib-head h2{ font-size:17px; }
+  .lib-filter{ min-width:0; width:100%; margin-left:0; }
+  .lib-grid{ grid-template-columns:1fr; }
+
+  /* composer: roomier, thumb friendly */
+  .composer{ padding:8px 10px 10px; }
+  .composer-box{ padding:10px 10px 8px; border-radius:19px; }
+  .composer-shell{ border-radius:21px; }
+  .composer-box textarea{ font-size:16px; }      /* 16px stops iOS zooming on focus */
+  .composer-bar{ gap:8px; }
+  .kbd-hint{ display:none; }
+  .scope-pill{ font-size:11px; padding:5px 9px; }
+  .scope-pill span:not(.dot){ max-width:94px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mic{ width:34px; height:34px; flex-basis:34px; }
+  .composer-box .send{ width:36px; height:36px; flex-basis:36px; }
+  .composer-hint{ font-size:10.2px; margin-top:7px; }
+  .listening-note{ font-size:11px; }
+
+  /* suggestions fill the width and are easier to tap */
+  .suggest{ width:calc(100% - 20px); max-height:46vh; border-radius:16px; }
+  .sg{ padding:11px 12px; font-size:13px; }
+  .sg .mini{ font-size:9.5px; padding:2px 6px; }
+
+  .to-bottom{ bottom:118px; }
+  .voice-bar{ margin:0 0 7px; font-size:11.4px; padding:6px 11px; }
+}
+
+/* very small phones */
+@media (max-width:380px){
+  .welcome h1{ font-size:19px; }
+  .scope-pill span:not(.dot){ max-width:62px; }
+  .topbar-title{ font-size:13px; }
+}
+
+/* landscape phones: the composer must not eat the screen */
+@media (max-height:460px) and (orientation:landscape){
+  .welcome{ padding-top:14px; }
+  .hero-logo{ display:none; }
+  .hero-grid{ grid-template-columns:repeat(2,1fr); }
+}
+
+/* phone sidebar: lists scroll, footer stays pinned */
+@media (max-width:760px){
+  .sidebar{ overflow:hidden; }
+  .sidebar .side-section:not(.grow){ flex:0 0 auto; min-height:0; }
+  .topic-list{ overflow-y:auto; max-height:44vh; -webkit-overflow-scrolling:touch; }
+  .side-section.grow{ min-height:0; flex:1 1 auto; }
+  .recent-list{ overflow-y:auto; max-height:16vh; }
+  .side-foot{ flex:0 0 auto; }
+  .topic{ padding:9px 10px; }          /* easier to tap */
+}
+
+/* ---------- key points ---------- */
+.block.keypts .block-label::before{ background:#c084fc; }
+.kp-list{
+  margin:0; padding:0; list-style:none;
+  counter-reset:kp; display:flex; flex-direction:column; gap:6px;
+}
+.kp-list li{
+  counter-increment:kp;
+  position:relative; padding:7px 12px 7px 34px;
+  background:var(--panel-2); border:1px solid var(--line-soft);
+  border-radius:9px; font-size:13.6px; line-height:1.45;
+}
+.kp-list li::before{
+  content:counter(kp);
+  position:absolute; left:9px; top:50%; transform:translateY(-50%);
+  width:18px; height:18px; border-radius:50%;
+  background:color-mix(in srgb,#c084fc 22%,transparent);
+  color:#c084fc; font-size:10.5px; font-weight:800;
+  display:grid; place-items:center;
+}
+.kp-list li b{ color:var(--ink); }
+
+/* ---------- comparison table ---------- */
+.block.cmp .block-label::before{ background:var(--accent-2); }
+.cmp-wrap{ overflow-x:auto; border:1px solid var(--line); border-radius:10px; }
+.cmp-table{ border-collapse:collapse; width:100%; font-size:13.2px; min-width:420px; }
+.cmp-table th, .cmp-table td{
+  padding:8px 12px; text-align:left; vertical-align:top;
+  border-bottom:1px solid var(--line-soft);
+}
+.cmp-table thead th{
+  background:var(--panel-2); font-size:11px; letter-spacing:.6px;
+  text-transform:uppercase; color:var(--ink-2); font-weight:700;
+  position:sticky; top:0;
+}
+.cmp-table thead th:nth-child(2){ color:var(--accent); }
+.cmp-table thead th:nth-child(3){ color:var(--accent-2); }
+.cmp-table tbody th{
+  font-weight:600; color:var(--ink-2); font-size:12.4px; width:26%;
+  background:color-mix(in srgb,var(--panel-2) 55%,transparent);
+}
+.cmp-table tbody tr:last-child th,
+.cmp-table tbody tr:last-child td{ border-bottom:0; }
+.cmp-table td{ color:var(--ink); }
+
+@media (max-width:760px){
+  .kp-list li{ font-size:13px; padding-left:31px; }
+  .cmp-table{ font-size:12.4px; min-width:360px; }
+  .cmp-table th, .cmp-table td{ padding:7px 9px; }
+}

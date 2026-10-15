@@ -142,6 +142,7 @@
     d.tagList = (d.tags || []).map(norm);                 // exact curated keywords
     d.bodyText = norm([d.simple, d.answer, d.project, d.remember, d.code].join(' ')).slice(0, 2600);
     d.topicName = (TOPICS[d.topic] || {}).name || d.topic;
+    if (window.QA_COMPARE && window.QA_COMPARE[d.id]) d.compare = window.QA_COMPARE[d.id];
   });
 
   /* ---------- problem statements ----------
@@ -382,6 +383,65 @@
     updateProgress();
   }
 
+  /* ---------- key points ----------
+     The crisp list to actually say out loud. Uses an explicit
+     `keypoints` array when an answer has one, otherwise lifts the
+     bullet lead-ins out of the answer, which is where the structure
+     already lives.                                                  */
+  function firstClause(s) {
+    s = String(s || '').replace(/`/g, '').trim();
+    var cut = s.split(/(?:\. |; |, which |, so )/)[0].trim().replace(/[.,;:]$/, '');
+    return cut.length > 96 ? cut.slice(0, 94).trim() + '…' : cut;
+  }
+
+  function keyPoints(d) {
+    if (d.keypoints && d.keypoints.length) return d.keypoints.slice(0, 7);
+    var out = [];
+    String(d.answer || '').split('\n').forEach(function (line) {
+      line = line.trim();
+      if (line.indexOf('- ') !== 0) return;
+      var body = line.slice(2).trim();
+      var m = body.match(/^\*\*([^*]+)\*\*\s*[—–\-:]*\s*([\s\S]*)$/);
+      if (m) {
+        var rest = firstClause(m[2]);
+        out.push('**' + m[1].trim() + '**' + (rest ? ' — ' + rest : ''));
+      } else {
+        out.push(firstClause(body));
+      }
+    });
+    if (out.length < 2) {                       // no bullets: use the bolded terms
+      var seen = {}, bolds = String(d.answer || '').match(/\*\*([^*]+)\*\*/g) || [];
+      out = [];
+      bolds.forEach(function (b) {
+        var t = b.replace(/\*\*/g, '').trim();
+        if (t.length > 1 && t.length < 60 && !seen[t.toLowerCase()]) { seen[t.toLowerCase()] = 1; out.push('**' + t + '**'); }
+      });
+    }
+    return out.slice(0, 7);
+  }
+
+  /* inline markdown only — for one-line list items */
+  function inlineMd(s) {
+    return esc(String(s || ''))
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+  }
+
+  /* ---------- comparison table ----------
+     For the "X vs Y" questions, a table reads far faster than prose
+     and is what you would sketch on a whiteboard anyway.            */
+  function compareTable(c) {
+    if (!c || !c.rows || !c.rows.length) return '';
+    return '<div class="block cmp"><div class="block-label">Side by side</div>' +
+      '<div class="cmp-wrap"><table class="cmp-table"><thead><tr>' +
+        '<th></th><th>' + esc(c.a) + '</th><th>' + esc(c.b) + '</th>' +
+      '</tr></thead><tbody>' +
+      c.rows.map(function (r) {
+        return '<tr><th>' + inlineMd(r[0]) + '</th><td>' + inlineMd(r[1]) + '</td><td>' + inlineMd(r[2]) + '</td></tr>';
+      }).join('') +
+      '</tbody></table></div></div>';
+  }
+
   /* ---------- answer rendering ---------- */
   function badge(topic) {
     var t = TOPICS[topic] || { name: topic, color: '#888' };
@@ -397,7 +457,14 @@
     if (d.simple) {
       h += '<div class="block simple"><div class="block-label">In simple words</div>' + md(d.simple) + '</div>';
     }
+    var kp = keyPoints(d);
+    if (kp.length > 1) {
+      h += '<div class="block keypts"><div class="block-label">Key points to hit</div><ol class="kp-list">' +
+           kp.map(function (p) { return '<li>' + inlineMd(p) + '</li>'; }).join('') +
+           '</ol></div>';
+    }
     h += '<div class="block"><div class="block-label">Say this in the interview</div><div class="say">' + md(d.answer) + '</div></div>';
+    if (d.compare) h += compareTable(d.compare);
     if (d.code) {
       h += '<div class="block"><div class="block-label">Code</div><pre><code>' + esc(d.code) + '</code></pre></div>';
     }
@@ -495,6 +562,17 @@
 
     var t0 = performance.now();
     var res = search(q, activeTopic);
+
+    // typed in spoken form? ("sequel server", "jay query") - only as a rescue,
+    // so a query that already works is never rewritten
+    var spokenFix = null;
+    if (!res.length || res[0].s < 45) {
+      var alt = fixSpoken(q);
+      if (alt && alt !== norm(q)) {
+        var res2 = search(alt, activeTopic);
+        if (res2.length && (!res.length || res2[0].s > res[0].s + 8)) { res = res2; spokenFix = alt; }
+      }
+    }
     var corr = (res[0] && res[0].corr) || {};
     var ms = Math.max(1, Math.round((performance.now() - t0) * 10) / 10);
     $('speedTxt').textContent = 'matched ' + DATA.length + ' answers in ' + ms + ' ms';
@@ -517,7 +595,8 @@
         var top = res[0].d;
         // a weak top hit still gets answered — say so rather than showing nothing
         var fixed = Object.keys(corr);
-        if (res[0].s < 30 || fixed.length) {
+        if (spokenFix) { holder.innerHTML = '<div class="didyoumean">Searched for <b>' + esc(spokenFix) + '</b> instead of <i>' + esc(q) + '</i>.</div>'; }
+        if (!spokenFix && (res[0].s < 30 || fixed.length)) {
           holder.innerHTML =
             '<div class="didyoumean">' +
             (fixed.length
@@ -539,6 +618,7 @@
       busy = false;
       loading.scrollIntoView({ behavior: 'smooth', block: 'start' });
       setTimeout(syncJump, 400);
+      voiceFollowUp();
     }, 140);
   }
 
@@ -683,11 +763,18 @@
     input.style.height = 'auto';
     input.style.height = Math.min(150, input.scrollHeight) + 'px';
   }
-  function closeSidebar() { $('sidebar').classList.remove('open'); }
+  function closeSidebar() {
+    $('sidebar').classList.remove('open');
+    $('app').classList.remove('side-open');
+  }
+  function openSidebar() {
+    $('sidebar').classList.add('open');
+    $('app').classList.add('side-open');
+  }
 
   /* ---------- events ---------- */
   function syncSend() { $('send').disabled = !input.value.trim(); }
-  input.addEventListener('input', function () { autosize(); showSuggest(); syncSend(); });
+  input.addEventListener('input', function () { autosize(); showSuggest(); syncSend(); askedByVoice = false; });
   input.addEventListener('blur', function () { setTimeout(hideSuggest, 120); });
   input.addEventListener('keydown', function (e) {
     if (e.key === 'ArrowDown') { if (moveSg(1)) e.preventDefault(); return; }
@@ -720,9 +807,14 @@
   $('libBtn').onclick = function () { showLibrary(library.hidden); closeSidebar(); };
   $('libFilter').oninput = function () { buildLibrary(this.value); };
   $('clearRecent').onclick = function () { recent = []; LS.set('recent', recent); buildRecent(); };
+  // tapping the dimmed backdrop closes the slide-over
+  $('app').addEventListener('click', function (e) {
+    if (window.innerWidth <= 760 && $('sidebar').classList.contains('open') && !e.target.closest('#sidebar, #openSide')) closeSidebar();
+  });
+
   function toggleNav(force) {
     if (window.innerWidth <= 860) {           // mobile: slide the panel over the page
-      $('sidebar').classList.toggle('open');
+      if ($('sidebar').classList.contains('open')) closeSidebar(); else openSidebar();
       return;
     }
     var app = $('app');
@@ -747,67 +839,95 @@
   window.DevQA = { data: DATA, search: search, ask: ask, topics: TOPICS };
 
   /* ============================================================
-     Voice search — speak the question, read the answer.
+     Voice mode.
 
-     Honest note, and the reason this is opt-in and off by default:
-     the browser's SpeechRecognition sends the audio to the vendor's
-     speech service, so using it is the one part of this app that
-     touches the network. Everything else stays local. It also needs
-     a secure context, so it works on https:// and localhost but not
-     on a file:// page opened straight from disk.
+     Text mode is normal typing. Voice mode keeps the microphone in
+     play for every question: ask, get the answer, and it listens
+     again for the next one without you touching anything.
+
+     Answers always come back as text — nothing is read aloud.
+
+     Honest note, and why it is opt-in: the browser transcribes
+     through its vendor's online service, so voice is the one part of
+     this app that touches the network. Everything else is local. It
+     also needs a secure context, so it works on https:// and
+     localhost but not on a file:// page opened from disk.
      ============================================================ */
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var recog = null, listening = false;
-  var voiceOn = LS.get('voice', false);
+  var recog = null, listening = false, askedByVoice = false, stopping = false;
+  var mode = LS.get('mode', 'text');
 
-  function voiceSupported() {
-    return !!SR && (window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+  /* --- what the microphone heard -> what you meant ---------------
+     "sequel server" -> "sql server", "jason" -> "json". Longest
+     phrases first so "sequel server" beats "sequel".              */
+  var SPEECH_KEYS = Object.keys(window.QA_SPEECH || {})
+    .sort(function (a, b) { return b.length - a.length; });
+
+  function fixSpoken(text) {
+    var out = ' ' + String(text || '').toLowerCase().replace(/\s+/g, ' ').trim() + ' ';
+    for (var i = 0; i < SPEECH_KEYS.length; i++) {
+      var k = SPEECH_KEYS[i];
+      var idx = out.indexOf(' ' + k + ' ');
+      while (idx >= 0) {
+        out = out.slice(0, idx) + ' ' + window.QA_SPEECH[k] + ' ' + out.slice(idx + k.length + 2);
+        idx = out.indexOf(' ' + k + ' ');
+      }
+    }
+    return out.replace(/\s+/g, ' ').trim();
   }
 
-  function voiceUnavailableReason() {
+  function voiceBlockReason() {
     if (!SR) return 'This browser has no speech recognition. Chrome or Edge will do it.';
-    if (!window.isSecureContext) return 'Voice needs a secure page. Open the published https:// link — a file opened from disk cannot use the microphone.';
+    if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1')
+      return 'Voice needs a secure page. Open the published https:// link — a file opened from disk cannot use the microphone.';
     return '';
   }
 
-  function paintVoice() {
-    var btn = $('voiceBtn'), txt = $('voiceTxt'), mic = $('micBtn');
-    if (!btn) return;
-    btn.classList.toggle('on', voiceOn);
-    txt.textContent = 'Voice search: ' + (voiceOn ? 'on' : 'off');
-    mic.hidden = !voiceOn;
-    // keep the footer claim honest: voice is the one thing that uses the network
+  function paintMode() {
+    var sw = $('modeSwitch');
+    if (!sw) return;
+    sw.classList.toggle('voice', mode === 'voice');
+    Array.prototype.forEach.call(sw.querySelectorAll('.mode-opt'), function (b) {
+      b.classList.toggle('active', b.getAttribute('data-mode') === mode);
+    });
+    $('micBtn').hidden = mode !== 'voice';
+
+    var bar = $('voiceBar');
+    if (bar) bar.hidden = mode !== 'voice';
+
     var hint = document.querySelector('.composer-hint');
     if (hint) {
-      hint.firstChild.nodeValue = voiceOn
+      hint.firstChild.nodeValue = mode === 'voice'
         ? 'Answers run locally · only voice transcription uses the network · '
         : 'Runs fully offline on your machine · no internet, no API, no cost · ';
     }
+    input.placeholder = mode === 'voice' ? 'Tap the mic, or type…' : 'Ask anything…';
   }
 
   function setListening(on) {
     listening = on;
     $('micBtn').classList.toggle('listening', on);
     $('composerShell').classList.toggle('listening', on);
-    var hint = $('kbdHint');
-    if (hint) hint.hidden = on;
-    var note = $('listeningNote');
-    if (note) note.hidden = !on;
+    if ($('kbdHint')) $('kbdHint').hidden = on;
+    if ($('listeningNote')) $('listeningNote').hidden = !on;
     if (!on) input.classList.remove('interim');
+    var bs = $('voiceBarState');
+    if (bs) bs.textContent = on ? 'listening…' : 'ready — tap the mic';
   }
 
   function startListening() {
     if (listening) { stopListening(); return; }
-    var reason = voiceUnavailableReason();
+    var reason = voiceBlockReason();
     if (reason) { toast(reason); return; }
 
     recog = new SR();
-    recog.lang = 'en-IN';            // Indian English; falls back sensibly
-    recog.interimResults = true;     // show words as they are recognised
-    recog.continuous = false;        // one question, then stop
+    recog.lang = LS.get('speechLang', 'en-IN');
+    recog.interimResults = true;
+    recog.continuous = false;
     recog.maxAlternatives = 1;
 
     var finalText = '';
+    stopping = false;
 
     recog.onstart = function () { setListening(true); };
 
@@ -815,8 +935,7 @@
       var interim = '';
       for (var i = e.resultIndex; i < e.results.length; i++) {
         var t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finalText += t;
-        else interim += t;
+        if (e.results[i].isFinal) finalText += t; else interim += t;
       }
       input.value = (finalText + interim).trim();
       input.classList.toggle('interim', !finalText && !!interim);
@@ -828,8 +947,9 @@
       setListening(false);
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         toast('Microphone blocked. Allow it in the address bar, then try again.');
+        setMode('text');
       } else if (e.error === 'no-speech') {
-        toast('Did not catch that — try again.');
+        toast('Did not catch that — tap the mic and try again.');
       } else if (e.error === 'network') {
         toast('Speech service unreachable. Voice needs internet; the answers do not.');
       } else if (e.error !== 'aborted') {
@@ -840,8 +960,16 @@
     recog.onend = function () {
       setListening(false);
       input.classList.remove('interim');
-      var said = input.value.trim();
-      if (said) { ask(said); }        // heard something -> answer it
+      var heard = input.value.trim();
+      if (!heard || stopping) return;
+
+      var fixed = fixSpoken(heard);
+      input.value = fixed;
+      askedByVoice = true;
+      if (fixed !== heard.toLowerCase()) {
+        toast('Heard “' + heard + '” → searching “' + fixed + '”');
+      }
+      ask(fixed);
     };
 
     try { recog.start(); }
@@ -849,34 +977,49 @@
   }
 
   function stopListening() {
-    if (recog) { try { recog.stop(); } catch (e) {} }
+    stopping = true;
+    if (recog) { try { recog.abort(); } catch (e) {} }
+    setListening(false);
   }
 
-  $('voiceBtn').onclick = function () {
-    if (!voiceOn) {
-      var reason = voiceUnavailableReason();
+  /* after an answer in voice mode, listen again for the next question */
+  function voiceFollowUp() {
+    if (mode !== 'voice' || !askedByVoice || listening) return;
+    setTimeout(function () {
+      if (mode === 'voice' && !listening && !input.value.trim()) startListening();
+    }, 900);
+  }
+
+  function setMode(next) {
+    if (next === 'voice') {
+      var reason = voiceBlockReason();
       if (reason) { toast(reason); return; }
-      voiceOn = true;
-      toast('Voice on. Note: speech is transcribed by the browser’s online service — the answers stay local.');
-    } else {
-      voiceOn = false;
-      stopListening();
     }
-    LS.set('voice', voiceOn);
-    paintVoice();
-  };
+    mode = next;
+    LS.set('mode', mode);
+    if (mode === 'text') { askedByVoice = false; stopListening(); }
+    paintMode();
+    if (mode === 'voice') {
+      toast('Voice mode on. Tap the mic and ask — it keeps listening for each next question.');
+    }
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.mode-opt'), function (b) {
+    b.onclick = function () { setMode(b.getAttribute('data-mode')); };
+  });
 
   $('micBtn').onclick = startListening;
 
   document.addEventListener('keydown', function (e) {
     if ((e.ctrlKey || e.metaKey) && (e.key === 'm' || e.key === 'M')) {
       e.preventDefault();
-      if (voiceOn) startListening(); else toast('Turn on Voice search in the sidebar first.');
+      if (mode === 'voice') startListening();
+      else setMode('voice');
     }
     if (e.key === 'Escape' && listening) stopListening();
   });
 
-  paintVoice();
+  paintMode();
 
 
   /* ---------- rotating placeholder ---------- */
