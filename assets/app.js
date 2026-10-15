@@ -322,6 +322,24 @@
     $('topicSelect').onchange = function () { setTopic(this.value); };
   }
 
+  function syncJump() {
+    var j = $('toBottom');
+    if (!j) return;
+    var scrollable = thread.scrollHeight > thread.clientHeight + 40;
+    var atEnd = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
+    j.hidden = thread.hidden || !scrollable || atEnd;
+  }
+
+  function syncScope() {
+    var pill = $('scopePill'), txt = $('scopeTxt'), dot = $('scopeDot');
+    if (!pill) return;
+    var t = activeTopic ? TOPICS[activeTopic] : null;
+    txt.textContent = t ? t.name : 'All topics';
+    dot.style.background = t ? t.color : 'var(--ink-3)';
+    pill.classList.toggle('filtered', !!activeTopic);
+    pill.title = activeTopic ? 'Searching only ' + t.name + ' - click to clear' : 'Searching every topic';
+  }
+
   function setTopic(t) {
     activeTopic = t || '';
     Array.prototype.forEach.call($('topicList').children, function (el) {
@@ -329,6 +347,7 @@
     });
     $('topicSelect').value = activeTopic;
     $('topbarTitle').textContent = activeTopic ? TOPICS[activeTopic].name : 'All topics';
+    syncScope();
     buildWelcome();
     if (!library.hidden) buildLibrary();
     closeSidebar();
@@ -469,6 +488,8 @@
     hideSuggest();
     input.value = '';
     autosize();
+    syncSend();
+    finishStream();
 
     row('user', 'N', '<div class="q-text">' + esc(q) + '</div>');
 
@@ -483,6 +504,7 @@
 
     setTimeout(function () {
       var holder = loading.querySelector('.body');
+      holder.innerHTML = '';                 // drop the typing dots
       if (!res.length) {
         // genuinely nothing — offer the best starting points rather than a dead end
         var picks = DATA.filter(function (d) { return d.star; }).slice(0, 6);
@@ -511,11 +533,56 @@
         }
         holder.innerHTML += answerHTML(top, ms, rel);
         pushRecent(q);
+        streamIn(holder);                 // reveal block by block, like a reply arriving
       }
       bindAnswer(holder);
       busy = false;
       loading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setTimeout(syncJump, 400);
     }, 260);
+  }
+
+  /* ---------- reveal the answer a block at a time ----------
+     Not fake slowness: the whole thing lands in ~450 ms, and one
+     click anywhere finishes it immediately.                      */
+  var streamTimers = [];
+  function finishStream() {
+    streamTimers.forEach(clearTimeout);
+    streamTimers = [];
+    Array.prototype.forEach.call(document.querySelectorAll('.stream-hidden'), function (el) {
+      el.classList.remove('stream-hidden');
+    });
+    var c = document.querySelector('.caret');
+    if (c) c.remove();
+  }
+
+  function streamIn(holder) {
+    finishStream();
+    var blocks = Array.prototype.slice.call(holder.children);
+    if (blocks.length < 2) return;
+
+    var caret = document.createElement('span');
+    caret.className = 'caret';
+
+    blocks.forEach(function (b, i) {
+      if (i === 0) return;                       // the heading lands straight away
+      b.classList.add('stream-hidden');
+    });
+
+    blocks[0].appendChild(caret);
+    var step = Math.min(70, Math.max(28, 420 / blocks.length));
+
+    blocks.forEach(function (b, i) {
+      if (i === 0) return;
+      streamTimers.push(setTimeout(function () {
+        b.classList.remove('stream-hidden');
+        b.classList.add('stream-in');
+        if (caret.parentNode) b.appendChild(caret);
+        if (i === blocks.length - 1) {
+          streamTimers.push(setTimeout(function () { if (caret.parentNode) caret.remove(); }, 220));
+        }
+      }, i * step));
+    });
   }
 
   /* ---------- recents ---------- */
@@ -525,6 +592,7 @@
     if (recent.length > 25) recent.pop();
     LS.set('recent', recent);
     buildRecent();
+    syncScope();
   }
   function buildRecent() {
     if (!recent.length) { $('recentList').innerHTML = '<div class="recent-empty">Nothing yet — ask something.</div>'; return; }
@@ -618,7 +686,8 @@
   function closeSidebar() { $('sidebar').classList.remove('open'); }
 
   /* ---------- events ---------- */
-  input.addEventListener('input', function () { autosize(); showSuggest(); });
+  function syncSend() { $('send').disabled = !input.value.trim(); }
+  input.addEventListener('input', function () { autosize(); showSuggest(); syncSend(); });
   input.addEventListener('blur', function () { setTimeout(hideSuggest, 120); });
   input.addEventListener('keydown', function (e) {
     if (e.key === 'ArrowDown') { if (moveSg(1)) e.preventDefault(); return; }
@@ -632,10 +701,21 @@
     }
   });
   $('send').onclick = function () { ask(input.value); };
+  $('scopePill').onclick = function () { if (activeTopic) setTopic(''); };
+  thread.addEventListener('click', function (e) {
+    if (!e.target.closest('button, a')) finishStream();
+  });
+  $('toBottom').onclick = function () {
+    thread.scrollTo({ top: thread.scrollHeight, behavior: 'smooth' });
+  };
+  thread.addEventListener('scroll', function () {
+    var atEnd = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
+    syncJump();
+  });
   $('newChat').onclick = function () {
     thread.innerHTML = ''; thread.appendChild(welcome);
     welcome.style.display = ''; showLibrary(false); buildWelcome();
-    input.value = ''; autosize(); input.focus(); closeSidebar();
+    input.value = ''; autosize(); syncSend(); input.focus(); closeSidebar();
   };
   $('libBtn').onclick = function () { showLibrary(library.hidden); closeSidebar(); };
   $('libFilter').oninput = function () { buildLibrary(this.value); };
@@ -665,6 +745,26 @@
 
   /* ---------- debug + extension hook ---------- */
   window.DevQA = { data: DATA, search: search, ask: ask, topics: TOPICS };
+
+  /* ---------- rotating placeholder ---------- */
+  var PLACEHOLDERS = [
+    'Ask anything…',
+    'Try: solid principles',
+    'Try: why is my query slow',
+    'Try: explain the vendor portal',
+    'Try: reverse a string',
+    'Try: two users edit the same record',
+    'Try: tell me about yourself'
+  ];
+  (function rotatePlaceholder() {
+    var i = 0;
+    setInterval(function () {
+      if (document.activeElement === input || input.value) return;
+      i = (i + 1) % PLACEHOLDERS.length;
+      input.style.opacity = '.45';
+      setTimeout(function () { input.placeholder = PLACEHOLDERS[i]; input.style.opacity = '1'; }, 160);
+    }, 3600);
+  })();
 
   /* ---------- boot ---------- */
   (function boot() {

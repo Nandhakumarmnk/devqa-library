@@ -86,15 +86,35 @@
       <div id="libBody"></div>
     </section>
 
+    <!-- jump to latest -->
+    <button class="to-bottom" id="toBottom" hidden title="Jump to latest">
+      <svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 5v14M6 13l6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+
     <!-- composer -->
     <div class="composer">
       <div class="suggest" id="suggest" hidden></div>
-      <div class="composer-box" id="composerBox">
-        <textarea id="input" rows="1" placeholder="Ask a keyword or a question…   (press / to focus)" autocomplete="off" spellcheck="false"></textarea>
-        <button class="send" id="send" title="Search">
-          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+
+      <div class="composer-shell" id="composerShell">
+        <div class="composer-box" id="composerBox">
+          <textarea id="input" rows="1" placeholder="Ask anything…" autocomplete="off" spellcheck="false"></textarea>
+
+          <div class="composer-bar">
+            <div class="composer-left">
+              <button class="scope-pill" id="scopePill" title="Current topic — click to clear">
+                <span class="dot" id="scopeDot"></span>
+                <span id="scopeTxt">All topics</span>
+                <svg class="scope-x" viewBox="0 0 24 24" width="12" height="12"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+              </button>
+              <span class="kbd-hint"><kbd>&#8629;</kbd> send<span class="sep-dot">·</span><kbd>&#8679;&#8629;</kbd> new line</span>
+            </div>
+            <button class="send" id="send" title="Search" disabled aria-label="Search">
+              <svg viewBox="0 0 24 24" width="17" height="17"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </div>
       </div>
+
       <div class="composer-hint">Runs fully offline on your machine · no internet, no API, no cost · <span id="speedTxt">—</span></div>
     </div>
   </main>
