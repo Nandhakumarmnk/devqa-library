@@ -215,6 +215,7 @@ window.QA = (window.QA || []).concat([
   simple: "Minimal APIs let you declare an endpoint in a couple of lines. Controllers give you more structure. Small service, minimal; big app with many endpoints, controllers.",
   answer: "Minimal APIs (`app.MapGet(...)`) cut the ceremony — no controller class, no attribute routing — and start marginally faster. They suit small services, internal endpoints and microservices with a handful of routes.\nControllers still win for a large API surface: model binding conventions, filters, grouped routing and a familiar structure keep hundreds of endpoints organised.\nThey share the same pipeline, DI and middleware, so it is an organisational choice. For anything beyond a few endpoints I would still group minimal endpoints into modules rather than letting Program.cs grow.",
   code: "app.MapGet(\"/api/vendors/{id:int}\", async (int id, IVendorService svc) =>\n    await svc.GetAsync(id) is {} v ? Results.Ok(v) : Results.NotFound())\n   .RequireAuthorization();",
+  project: "The APIs are controllers, deliberately. The Vendor Portal has versioning, filters, model validation and a consistent error contract across a lot of endpoints, and controllers are where that discipline lives cheaply. I would reach for minimal APIs on something small and self-contained — a webhook receiver or a health surface — rather than retrofitting a working controller stack to save a few lines.",
   remember: "Few endpoints = minimal. Big API = controllers."
 },
 

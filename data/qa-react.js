@@ -52,6 +52,7 @@ window.QA = (window.QA || []).concat([
   simple: "Call hooks at the top level of a component, always in the same order, never inside an if or a loop.",
   answer: "Two rules:\n1. Only call hooks at the top level — not inside conditions, loops or nested functions. React tracks hooks by call order, so a conditional hook shifts every later hook's identity and the state ends up attached to the wrong thing.\n2. Only call hooks from React function components or from custom hooks (functions named `useSomething`).\nThe eslint plugin enforces both. If I need conditional behaviour I put the condition inside the hook, not around it.",
   code: "// wrong\nif (isEdit) { const [v, setV] = useState(null); }\n\n// right\nconst [v, setV] = useState(null);\nif (isEdit) { /* use v */ }",
+  project: "Top level only and never inside a condition or a loop, because hooks are matched by call order rather than by name. The time it bit me was an early return added above a useEffect during a change — the order shifted on that render and the behaviour went strange rather than throwing. The lint rule catches it, which is why that rule is on rather than advisory.",
   remember: "Top level, same order, every render."
 },
 
@@ -150,6 +151,7 @@ window.QA = (window.QA || []).concat([
   simple: "Old class components had named lifecycle methods. Hooks do the same jobs with useEffect and its dependency array.",
   answer: "Mapping:\n- `componentDidMount` → `useEffect(fn, [])`\n- `componentDidUpdate` → `useEffect(fn, [dep])`\n- `componentWillUnmount` → the cleanup function returned from useEffect\n- `shouldComponentUpdate` → `React.memo`\n- constructor state → `useState`\nFunction components with hooks are the current standard: less boilerplate, no `this` binding, and logic is grouped by concern instead of scattered across three lifecycle methods. Class components still exist in older code, and error boundaries are still class-based.",
   code: "useEffect(() => {\n  const id = setInterval(refresh, 30000);\n  return () => clearInterval(id);     // unmount cleanup\n}, []);",
+  project: "The Vendor Portal screens are function components with hooks, so useEffect with an empty dependency array is the load, dependencies are the update, and the returned cleanup is the unmount. I have read the class methods in older material but I have not written componentDidUpdate in this codebase, and I would say so rather than imply I had.",
   remember: "[] = mount, [dep] = update, return fn = unmount."
 },
 
@@ -182,6 +184,7 @@ window.QA = (window.QA || []).concat([
   simple: "An error boundary catches a crash inside part of the UI and shows a fallback instead of blanking the whole page.",
   answer: "A class component implementing `getDerivedStateFromError` and `componentDidCatch` catches render-time errors in its subtree, logs them, and renders a fallback. Without one, an uncaught render error unmounts the whole tree — the infamous white screen.\nIt does not catch errors in event handlers, async code or outside React; those need ordinary try/catch. I place boundaries around independent regions — a grid, a widget, a route — so one failing section does not take the application down.",
   code: "class ErrorBoundary extends React.Component {\n  state = { hasError: false };\n  static getDerivedStateFromError() { return { hasError: true }; }\n  componentDidCatch(err, info) { logToServer(err, info); }\n  render() { return this.state.hasError ? <ErrorPanel /> : this.props.children; }\n}",
+  project: "The honest answer is that the Vendor Portal screens do not have one, and they should — a render error in one panel takes the screen down rather than that panel. API failures are handled per call with a message, which covers the common case, but a boundary around the feature areas is on my list and I would rather say that than describe one I did not write.",
   remember: "Boundaries catch render errors only — not event handlers or async code."
 },
 

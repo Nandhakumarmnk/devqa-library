@@ -85,6 +85,7 @@ window.QA = (window.QA || []).concat([
   simple: "Abstraction is about design — deciding what to show. Encapsulation is about protection — keeping the inside safe from outside meddling.",
   answer: "Abstraction happens at design time: I expose `ISapClient.PostInvoice()` and the caller never learns about the connection, retries, or payload format. It answers what.\nEncapsulation is implementation level: private fields, validation inside setters, no public mutable collections. It answers how it is protected.\nThey work together — abstraction gives a clean surface, encapsulation stops anyone reaching behind it and putting the object in an invalid state.",
   code: "public class PurchaseOrder {\n    private readonly List<PoLine> _lines = new();\n    public IReadOnlyList<PoLine> Lines => _lines;      // nobody can Add from outside\n    public void AddLine(PoLine l) {                     // rules enforced here\n        if (l.Qty <= 0) throw new ArgumentException(\"Qty must be positive\");\n        _lines.Add(l);\n    }\n}",
+  project: "Both are in the document engine and they do different jobs. ISapClient is abstraction — it says what the SAP side can do without saying how, so the engine depends on the contract. The purchase order keeping its lines private behind AddLine is encapsulation — it protects its own state so nobody can reach in and skip the rules. Abstraction gives you the clean surface, encapsulation stops anyone going around it.",
   remember: "Abstraction = what you show. Encapsulation = what you protect."
 },
 

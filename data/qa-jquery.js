@@ -52,6 +52,7 @@ window.QA = (window.QA || []).concat([
   simple: "var is function-scoped and leaks out of blocks. let and const are block-scoped. const means the binding cannot be reassigned — the object inside can still change.",
   answer: "`var` is function scoped and hoisted as `undefined`, which is why a variable can be read before its declaration line without an error.\n`let` and `const` are block scoped and hoisted into a temporal dead zone — reading them before the declaration throws, which catches bugs early.\n`const` prevents reassignment of the binding only: `const arr = []; arr.push(1)` is perfectly legal.\nThe classic interview demo is a loop with `var` in a setTimeout printing the final value every time, because all iterations share one variable; `let` creates a fresh binding per iteration.\nMy default is const, let when it must change, var never in new code.",
   code: "for (var i = 0; i < 3; i++) setTimeout(() => console.log(i));   // 3 3 3\nfor (let j = 0; j < 3; j++) setTimeout(() => console.log(j));   // 0 1 2",
+  project: "The older modules are var and the newer React work is const and let, so I have seen the difference close up. The classic var bug — a loop variable captured in a handler and every row ending up with the last value — is a real one from the jQuery grids, and let fixes it because the binding is per iteration. I default to const and only use let when something genuinely reassigns.",
   remember: "const by default, let when it changes, var not at all."
 },
 
@@ -62,6 +63,7 @@ window.QA = (window.QA || []).concat([
   simple: "== converts the types first and then compares, so surprising things end up equal. === compares value and type, with no conversion.",
   answer: "`==` applies type coercion: `'5' == 5` is true, `0 == false` is true, `null == undefined` is true, and `[] == false` is true. Those rules are hard to hold in your head, so the result is bugs.\n`===` compares type and value — predictable, and what I use everywhere.\nThe one idiomatic exception is `x == null`, which checks null and undefined together.\nRelated: falsy values are `false, 0, '', null, undefined, NaN`, so `if (qty)` wrongly rejects a legitimate zero — use `if (qty !== undefined)` or an explicit check.",
   code: "'5' == 5     // true\n'5' === 5    // false\n0 == ''      // true\nif (value == null) { /* null or undefined */ }",
+  project: "Triple equals by default, every time. The place double equals actually bit was ids coming back from an API as strings and being compared against numbers — it worked until a value was zero or empty and then it quietly did not. The only use I keep for double equals is the deliberate null or undefined check, and even then I would rather write it out.",
   remember: "Always ===. The only safe == is x == null."
 },
 
@@ -138,6 +140,7 @@ window.QA = (window.QA || []).concat([
   simple: "Arrow functions, let/const, template strings, destructuring, spread, default parameters, optional chaining, modules — the everyday modern JavaScript toolkit.",
   answer: "The ones I use daily:\n- **Arrow functions** and lexical `this`.\n- **Template literals** for readable strings and multi-line markup.\n- **Destructuring** of objects and arrays, including in function parameters — `const { id, name } = vendor;`\n- **Spread/rest** for copying and merging — `{...state, status: 'OPEN'}` is the standard immutable update in React.\n- **Default parameters** and **optional chaining** `?.` with **nullish coalescing** `??`.\n- **Modules** (import/export), **Promise/async-await**, `Map`/`Set`.\nSpread does a shallow copy, which is worth saying out loud — nested objects are still shared references.",
   code: "const { id, name = '-' } = vendor;\nconst next = { ...state, status: 'APPROVED' };\nconst city = vendor?.address?.city ?? 'N/A';",
+  project: "Arrow functions and destructuring everywhere in the React screens, template literals instead of string concatenation, spread for copying state rather than mutating it, async and await instead of promise chains, and optional chaining, which removed a lot of defensive checks on API responses that may or may not have a nested object.",
   remember: "Spread is a shallow copy. Nested objects are still shared."
 },
 
@@ -180,6 +183,7 @@ window.QA = (window.QA || []).concat([
   simple: "A shallow copy copies the top level only — nested objects are still shared. A deep copy duplicates everything, so nothing is shared.",
   answer: "`{...obj}` and `Object.assign({}, obj)` are shallow: change `copy.address.city` and the original changes too, because both point at the same address object.\nDeep copy options: `structuredClone(obj)` (modern and handles Dates, Maps, cyclic references), or `JSON.parse(JSON.stringify(obj))` which is quick but drops functions and undefined, and turns Dates into strings.\nThis matters most in React state updates — a nested change needs each level along the path copied, otherwise the reference is unchanged and the component may not re-render.",
   code: "const copy  = { ...order };                 // shallow\nconst deep  = structuredClone(order);       // deep\n// React: copy each level you change\nsetOrder(o => ({ ...o, header: { ...o.header, status: 'OPEN' } }));",
+  project: "This is a real React bug rather than a trivia question. Spreading state one level deep and then mutating something nested means the reference did not change, so the component does not re-render — it looks like React is broken when it is doing exactly what it promised. In the Vendor Portal forms anything nested gets copied at every level it is changed at.",
   remember: "Spread copies one level deep. Nested changes need nested copies."
 },
 
@@ -201,6 +205,7 @@ window.QA = (window.QA || []).concat([
   simple: "JavaScript moves declarations to the top of their scope before running. var becomes undefined, function declarations are fully available, let and const throw if you touch them early.",
   answer: "During compilation declarations are registered first. `var` is initialised to `undefined`, so reading it before assignment gives undefined rather than an error. Function **declarations** are hoisted whole, so they can be called before they appear. Function **expressions** assigned to a variable follow the variable's rules.\n`let` and `const` are hoisted but sit in the temporal dead zone until the declaration executes, so early access throws a ReferenceError — which is better, because it surfaces the bug immediately.",
   code: "console.log(a);    // undefined\nvar a = 1;\n\nconsole.log(b);    // ReferenceError\nlet b = 2;\n\nhello();           // works — declaration hoisted\nfunction hello() {}",
+  project: "Mostly it explains errors rather than something I use — a const or let read before its declaration throws, where a var would have been quietly undefined, and the throw is the better behaviour. Function declarations being hoisted is why the older jQuery files can call a helper defined further down the file, which is fine but not something I would write deliberately now.",
   remember: "var hoists as undefined, let/const throw, function declarations are ready."
 },
 
@@ -222,6 +227,7 @@ window.QA = (window.QA || []).concat([
   simple: "undefined means nobody ever set it. null means somebody deliberately set it to nothing.",
   answer: "`undefined` is the default for a declared but unassigned variable, a missing object property, a missing function argument, and a function with no return.\n`null` is an explicit assignment meaning no value — typically what an API returns for an empty field.\n`typeof undefined` is 'undefined'; `typeof null` is 'object', a famous language bug.\n`null == undefined` is true but `null === undefined` is false, which is why `value == null` is the accepted idiom for checking both at once. Optional chaining `?.` and `??` are the modern way to handle them safely.",
   code: "let a;                 // undefined\nconst b = null;        // explicitly empty\nconst city = vendor?.address?.city ?? 'N/A';",
+  project: "This matters at the API boundary. A field the server deliberately returned as null is a different thing from a field that was not in the payload at all, and treating them the same is how a form shows blank instead of showing what was saved. In the Vendor Portal screens null means the user cleared it and undefined means we never had it, and the save logic tells them apart.",
   remember: "undefined = never set. null = set to nothing on purpose."
 },
 

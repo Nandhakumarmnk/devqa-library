@@ -458,4 +458,226 @@ window.QA_SCRIPT = {
     { q: "What about sorting on a JSON field?", a: "A computed column over the JSON property, persisted and indexed. Otherwise every sort is a scan with a parse on each row." }
   ]
 },
+
+/* ---------- ADO.NET ----------
+   The hand-written data layer is the part of this work he knows best,
+   so these are said with the specifics in them rather than around them. */
+
+"ado-objects": {
+  script: "There are six I use daily. SqlConnection is the connection itself, built from the connection string, and it has to be closed or disposed. SqlCommand carries the SQL or the stored procedure name plus its parameters, and it has CommandType, CommandTimeout and the three Execute methods. SqlDataReader is a forward-only read-only stream of rows — it is the fastest option but it holds the connection open while you read, so I read and get out. SqlDataAdapter is the bridge: it runs the command, fills a DataTable or DataSet and closes the connection again. SqlParameter is the typed safe way to pass user input, and it is the one that prevents injection. And SqlTransaction groups commands so they commit or roll back together. In our data layer the reader is the common case because most screens read and move on; the adapter only comes out where a whole set genuinely has to be held in memory and worked over, like validating a bulk upload sheet.",
+  followups: [
+    { q: "Reader or adapter — which do you reach for?", a: "Reader, nearly always. The adapter fills a copy in memory, and if I am only going to stream rows into a list that copy is pure cost. I use the adapter when the data has to be worked over after the connection is gone." },
+    { q: "What happens if you forget to close the reader?", a: "The connection stays checked out of the pool. Do that under load and the pool drains, and the symptom is requests hanging rather than erroring, which is much harder to diagnose. That is why every one of them is inside a using." }
+  ]
+},
+
+"ado-connected": {
+  script: "Connected means you hold the connection while you work — that is the DataReader, streaming rows straight off the wire. Disconnected means you take a copy and let the connection go — that is the DataAdapter filling a DataTable or a DataSet. The trade is memory against connection time. The reader is faster and lighter but it is pinning a connection, so I keep the loop inside it short and I never do anything slow in there, like calling another service, because that would hold a pooled connection while something unrelated is waiting. The disconnected model costs you a copy in memory but the connection is back in the pool immediately. In our procurement screens it is the reader, because the rows go straight into a list and out to the UI. In the Excel bulk upload it is a DataTable, because the whole sheet has to be validated against the masters before anything is written, and that work genuinely needs the data in hand.",
+  followups: [
+    { q: "Is DataSet still worth using?", a: "Rarely. It is a whole in-memory relational model with multiple tables and relationships, and most of the time a DataTable or a plain list of objects is what you actually need. I would not add a DataSet to new code without a specific reason." },
+    { q: "Which is better for a large result?", a: "Neither, really — the right answer is not to fetch a large result. Page it. If I genuinely have to stream a lot of rows, the reader, because the disconnected copy would put the whole thing in memory at once." }
+  ]
+},
+
+"ado-execute": {
+  script: "Three methods for three shapes of result. ExecuteReader when I want rows back — it returns the forward-only reader I then walk. ExecuteScalar when I want exactly one value, a count or a newly inserted identity, and it returns the first column of the first row as an object, so it needs a cast and a null check. ExecuteNonQuery for anything that changes data and returns no rows — insert, update, delete, or a procedure that just does work — and it gives you the number of rows affected, which is genuinely useful. I use that return value as a check rather than ignoring it: on a concurrency-guarded update, zero rows affected is how I know somebody else changed the record since I read it, and on a stock decrement with a quantity guard in the WHERE clause, zero means there was not enough stock.",
+  followups: [
+    { q: "What does ExecuteScalar return if there are no rows?", a: "Null — and that is the trap, because it can also return DBNull if the value itself is null. Those are two different things and both have to be handled before the cast." },
+    { q: "Is ExecuteNonQuery's row count always reliable?", a: "Not if the procedure has SET NOCOUNT ON, which suppresses it. Worth knowing, because code that checks the count then silently stops working when somebody adds that line to the procedure." }
+  ]
+},
+
+"ado-sp": {
+  script: "Set the command text to the procedure name and the CommandType to StoredProcedure — that is the part people forget, and without it the name is treated as a SQL statement. Then add the parameters with an explicit type rather than AddWithValue, open the connection as late as possible, and execute. For output parameters I set the Direction to Output before executing and read the Value afterwards, and the important detail there is that an output parameter is only populated once the reader is closed, which catches people out when they try to read it while still streaming rows. Almost all our write paths and the tuned reporting screens go through stored procedures rather than inline SQL, because that is where the execution plan is something I control and where the DBA side can see what the application is actually running.",
+  followups: [
+    { q: "Why not AddWithValue?", a: "It infers the type from the value, and the inference can be wrong — a string going in as nvarchar against a varchar column causes an implicit conversion that kills the index seek. Safe either way against injection; it is a performance trap, not a security one." },
+    { q: "How do you get the return value rather than an output parameter?", a: "A parameter with Direction set to ReturnValue. Though I would say most of the time an output parameter or a result set is clearer, because the return value is conventionally a status code and overloading it with data gets confusing." }
+  ]
+},
+
+"ado-injection": {
+  script: "Parameters for every piece of user input, without exception. A parameterised command sends the SQL and the values separately, so a crafted input arrives as a string to compare against rather than as SQL to run. But I would not stop there, because the three things that actually bite are less obvious. First, dynamic SQL inside a stored procedure is still injectable — passing a parameter in does not help if the procedure concatenates it into an EXEC, and that needs sp_executesql with parameters. Second, the things that cannot be parameterised, like a table name or a sort column coming from the UI, have to be validated against a whitelist, never concatenated from the request. Third, use a least-privilege database account so even a successful injection has a small blast radius. And do not return the raw SqlException to the user, because it leaks the schema. That whole list came out of the security remediation work rather than from a book.",
+  followups: [
+    { q: "Does an ORM make you safe?", a: "Mostly, because it parameterises by default — but FromSqlRaw with a concatenated string is exactly as injectable as string concatenation in ADO.NET. FromSqlInterpolated looks like interpolation and is actually parameterised, which is the one to prefer." },
+    { q: "How would you find this in an existing codebase?", a: "Search for string concatenation and interpolation reaching CommandText, and for EXEC inside procedures. That is how we found them — by pattern, then fixing the pattern everywhere rather than one report at a time." }
+  ]
+},
+
+"ado-using": {
+  script: "Because a connection, a command and a reader all hold unmanaged resources, and using guarantees they are released even when something throws halfway through. Without it, an exception between opening and closing leaves the connection checked out of the pool, and the failure mode is nasty — it is not an error you can see, it is the pool slowly draining until requests start hanging. The reason that is worth saying in an interview is that it is a production symptom rather than a code-review preference. In our data layer every connection, command and reader sits inside a using block, and the connection is opened as late as possible and disposed as early as possible, so it is in the pool rather than in our hands. Disposing the connection also returns it to the pool rather than actually closing the socket, which is the bit people assume is expensive and is not.",
+  followups: [
+    { q: "Does Dispose close the connection?", a: "It returns it to the pool, which is what you want. The physical connection stays open for reuse — that is the whole point of pooling, and it is why opening and closing frequently is cheap rather than expensive." },
+    { q: "What about the reader specifically?", a: "The reader holds the connection open while you read, so it has its own using inside the connection's. And any output parameters on the command are only populated after that reader is closed." }
+  ]
+},
+
+"ado-vs-ef": {
+  script: "EF Core for the ordinary entity work — the CRUD, the navigation properties, change tracking, migrations — because it removes a lot of code that has no business being hand-written. ADO.NET with stored procedures for the places where the plan has to be mine: the statement, outstanding and payment report screens. Those are the heaviest queries in the system, and what I want there is a tuned procedure, a specific index behind it, and a mapping I control — not a generated query I have to reverse-engineer from a profiler trace. There are two other reasons I keep it. Bulk work, where SqlBulkCopy is an order of magnitude faster than inserting entities one at a time. And multiple result sets in one round trip, which the reader does naturally. I would not argue for hand-writing everything; the argument is that a single data-access strategy for every problem is the thing that costs you.",
+  followups: [
+    { q: "Is that not two ways of doing the same thing?", a: "It is, and I would be honest that the cost is a developer having to know which applies. The rule we use is simple enough to hold: entity work is EF, reports and bulk are ADO.NET. A rule people can state is worth more than a purer design nobody follows." },
+    { q: "Could EF do those reports?", a: "It can run raw SQL and keyless entities, and for simpler reports I would. Once a query is a tuned procedure with its own indexes, going through EF to call it buys nothing and adds a layer between me and the plan." }
+  ]
+},
+
+"ado-connstring": {
+  script: "Out of the code and out of source control, first of all. In development it is user secrets, and in the deployed application it comes from configuration that is environment-specific rather than checked in. One of our applications encrypts its connection string section, and I would say honestly that it should have been consistent across all of them from the start rather than one of them — that is on my list of things I would fix. The right answer at the top end is a managed identity so there is no password in the string at all, or a secrets store like Key Vault, and the application reads it at startup. The other half of the answer is the account in that string: it should have only the permissions the application needs, so that a leak of the string is bounded, and it should certainly not be sa.",
+  followups: [
+    { q: "What if it is already committed to git?", a: "Rotate the credential first, because it is in the history forever and removing the file does not help. Then move it out properly. Treat it as a leak, not as a tidy-up." },
+    { q: "Is integrated security better?", a: "Where the deployment allows it, yes — no password to leak at all. Ours is a Windows Server and IIS environment, so that is a realistic option and it is the direction I would push." }
+  ]
+},
+
+"ado-transaction": {
+  script: "Begin a transaction on the connection, assign it to every command that takes part — and that is the step people miss, because a command without the transaction assigned will not join it — then commit at the end and roll back in the catch. The whole thing goes in a using so an exception cannot leave a transaction open holding locks. The two things I think about beyond the mechanics are scope and isolation. Scope: keep it as short as possible and never do anything slow inside it, especially not a call to another system, because every lock is held for the whole duration. That is one of the reasons our SAP posting is a background job rather than part of the user's save — it would otherwise be a web request holding a transaction open against somebody else's uptime. And isolation level: the default is read committed and I leave it there unless there is a specific reason, because raising it increases blocking.",
+  followups: [
+    { q: "When would you use TransactionScope instead?", a: "When the work spans more than one connection or resource and genuinely needs to be atomic across them. It is heavier and it can escalate to a distributed transaction, so I would not use it for a single database where a SqlTransaction does the job." },
+    { q: "What about a transaction across a web request?", a: "No. A transaction should live inside one server-side unit of work, never across a user's thinking time. For two users editing the same record the answer is a rowversion check, not a held lock." }
+  ]
+},
+
+"ado-helper": {
+  script: "Yes, and it is the thing that kept the ADO.NET side readable next to the EF Core side. It is a small class with a connection factory and a few generic methods — one that runs a procedure and maps each row with a Func the caller supplies, one for a scalar, one for a non-query — so every call site adds its parameters and says how to map a row, and nothing else. All the repetitive parts live in one place: opening late, disposing in the right order, reading ordinals once outside the loop rather than by name on every row, and handling DBNull. The payoff is that a bug in the plumbing is one fix rather than forty, and a new query is about six lines. What I deliberately did not do is build a mini-ORM — the moment a helper starts generating SQL it has become a framework, and we already have one of those.",
+  followups: [
+    { q: "Why not just use Dapper?", a: "Honestly, it would have been a reasonable choice and does the same job better. This predates that decision in our codebase. I would not rewrite working code to swap it, but for something new I would look at Dapper rather than hand-roll it again." },
+    { q: "How do you test it?", a: "The mapping functions are pure and testable on their own. The database side needs an integration test against a real instance — which is one of the gaps I would close, because that layer currently relies on manual testing." }
+  ]
+},
+
+"ado-bulk": {
+  script: "SqlBulkCopy, not a loop of inserts. Inserting a few thousand rows one statement at a time is a few thousand round trips and a transaction log entry each; SqlBulkCopy streams them in one operation and it is an order of magnitude faster. It takes a DataTable or a DataReader, so the shape I use is to map the source into a DataTable, set the column mappings explicitly rather than relying on ordinal position, set a sensible batch size, and let it go. The detail worth mentioning is that it bypasses the usual constraint checking unless you ask for it, so if the data is not already trusted I land it in a staging table first, validate there set-based, and then move it across. That is exactly what the Excel bulk upload does — the sheet goes into staging, gets validated row by row against the masters, and the rows that fail come back as a report rather than killing the whole file.",
+  followups: [
+    { q: "What batch size?", a: "A few thousand is a reasonable starting point. It is a trade between round trips and how much is held in one go, and I would watch the log growth and tune rather than pick a number and defend it." },
+    { q: "Does it run in a transaction?", a: "It can — you can pass one in, and then the whole load commits or rolls back together. Without one each batch commits on its own, which is faster but leaves you half-loaded if it fails partway." }
+  ]
+},
+
+"ado-dbnull": {
+  script: "DBNull.Value is not the same as null, and that is the whole question. A null column coming back from the reader is DBNull.Value, so casting it straight to a string or an int throws. I check IsDBNull on the ordinal before reading, or use the null-coalescing pattern, and in our data helper that check lives in one place rather than at every call site. Going the other way matters too: passing a C# null as a parameter value is not the same as passing a database NULL, so a nullable parameter has to be sent as DBNull.Value explicitly or the command will complain. The reason I say this is a real thing rather than trivia is that it is the single most common NullReferenceException in hand-written data access, and it shows up on exactly the optional columns that are empty for most rows and populated for a few — so it passes testing and fails in production.",
+  followups: [
+    { q: "How do you read a nullable int cleanly?", a: "Check IsDBNull on the ordinal and return a nullable int — null if it is DBNull, the value otherwise. Doing it by ordinal rather than by name also avoids a lookup per row." },
+    { q: "What about EF Core?", a: "It maps database NULL to a C# null on a nullable property, so this problem largely disappears — which is one of the quiet reasons the entity work is EF and only the tuned queries are hand-written." }
+  ]
+},
+
+/* ---------- SQL Server ---------- */
+
+"sql-sp-function": {
+  script: "A stored procedure is a program and a function is an expression. The procedure can change data, run DDL, use transactions and return several result sets, and you call it with EXEC. A function has to be deterministic about side effects — it cannot change data — and it returns either a scalar or a table, which means you can use it inside a SELECT or a WHERE, which is the real reason to want one. The trap is the scalar function used in a WHERE clause over a large table: before SQL Server 2019 it ran row by row and killed the plan, and even with inlining in 2019 I would check the plan rather than assume. That is the same family of mistake as wrapping a function around an indexed column. In our work the write paths and the tuned reports are procedures; functions I keep for small reusable expressions, and I look at the plan before putting one anywhere near a filter.",
+  followups: [
+    { q: "Inline table-valued or multi-statement?", a: "Inline, where I can. It is expanded into the calling query so the optimiser can see through it; a multi-statement one is a black box with a fixed row estimate, which is how you get a bad plan." },
+    { q: "Why use procedures at all with an ORM?", a: "For the queries where I want to own the plan and the indexes, and for anything the database side needs visibility of. For ordinary entity work the ORM is better, and I would not write a procedure per table." }
+  ]
+},
+
+"sql-window": {
+  script: "Window functions let you rank or number rows without collapsing them, which is the difference from GROUP BY — you keep every row and add a calculation that looks across a window of rows. ROW_NUMBER always gives distinct consecutive numbers, so ties break arbitrarily. RANK leaves gaps after a tie — two firsts then a third. DENSE_RANK does not — two firsts then a second. The question that comes up is second highest salary, and I lead with DENSE_RANK because it handles duplicates correctly and generalises to the Nth, where the MAX-of-a-subquery version does not. The other thing worth saying is PARTITION BY, because the real follow-up is almost always per department or per vendor, and adding PARTITION BY is the whole change rather than a rewrite. I use ROW_NUMBER for deduplication and for server-side paging where OFFSET is not available.",
+  followups: [
+    { q: "How do you delete duplicates with it?", a: "ROW_NUMBER partitioned by the columns that define a duplicate, ordered by whichever row you want to keep, then delete where that number is greater than one. It is a CTE and it reads clearly, which matters for something destructive." },
+    { q: "ROW_NUMBER or OFFSET FETCH for paging?", a: "OFFSET FETCH where the version supports it, because it is clearer. Both still get slower at deep page numbers, so for very large sets keyset paging on an indexed column is the better answer." }
+  ]
+},
+
+"sql-duplicates": {
+  script: "Finding them is GROUP BY the columns that define a duplicate with HAVING COUNT greater than one. Deleting them is the part worth doing carefully, and the clean way is a CTE with ROW_NUMBER partitioned by those same columns, ordered by whatever decides which one to keep — usually the earliest identity or the latest modified date — and then deleting where the row number is greater than one. I would say two things out loud before running it. First, select it before you delete it; a destructive statement against a duplicate definition you have not verified is how you lose good rows. Second, once it is cleaned, put a unique constraint or a unique index on those columns, because otherwise you will be doing this again in six months. That last part is the actual answer — the duplicates are a symptom of nothing stopping them being created.",
+  followups: [
+    { q: "What if there is no key to order by?", a: "Then any deterministic ordering will do to pick a survivor, but I would ask why first — a table with genuinely indistinguishable rows and no key is usually a design problem worth raising rather than quietly deduplicating." },
+    { q: "Would you do it in one statement on a large table?", a: "No. Batches with a loop and a small delay, the same as any large update, so the log does not explode and other users are not blocked for the duration." }
+  ]
+},
+
+"sql-btree": {
+  script: "A B-tree — a balanced tree with a root, intermediate levels and leaf pages. A seek walks from the root down through a couple of levels to the leaf, which is why a lookup on a big table is a handful of page reads rather than a scan of the whole thing. The difference between the two index types is what is at the leaf. In a clustered index the leaf is the data row itself, so the clustered index is the table, physically ordered by that key — which is why a table has only one. In a non-clustered index the leaf holds the key plus a pointer back to the row, so finding other columns means a key lookup back into the clustered index, and that is what INCLUDE avoids by carrying those columns in the leaf. Knowing that is what makes covering indexes make sense rather than being a trick: you are removing the second trip.",
+  followups: [
+    { q: "Why does the clustered key choice matter?", a: "Because it is in every non-clustered index as the pointer. A wide or changing clustered key makes every other index bigger and costs you on every update — which is the argument for a narrow, stable, increasing key." },
+    { q: "What is a page?", a: "Eight kilobytes, the unit SQL Server reads and writes. It never reads one row, it reads the page the row is on, which is why logical reads rather than row counts are the honest measure of how much work a query did." }
+  ]
+},
+
+"sql-exec-plan": {
+  script: "The plan is what the optimiser decided to do, and I read it looking for a few specific things rather than admiring the whole picture. First, seeks against scans — a clustered index scan on a large table where I expected a seek usually means the predicate is not SARGable or the index is missing. Second, the gap between estimated and actual rows, because a large gap means the statistics are wrong and every decision downstream of it is built on a bad number. Third, the fat arrows, which are where the rows actually are. Then the specific operators: key lookups in volume, which an INCLUDE fixes; sorts and hash matches spilling to tempdb because the memory grant was too small; and any implicit conversion warning, which is the quiet one that turns a seek into a scan. I always compare the actual plan before and after a change, because that is the only honest proof that the fix was the fix.",
+  followups: [
+    { q: "Estimated or actual plan?", a: "Actual, when I can run it, because estimated has no real row counts and the whole point is comparing estimate against reality. Estimated is fine for a quick look at the shape." },
+    { q: "What else do you look at alongside it?", a: "SET STATISTICS IO ON for the logical reads. Wall-clock time lies to you because of caching; logical reads tell you how much work was genuinely done." }
+  ]
+},
+
+"sql-audit": {
+  script: "It depends what the requirement actually is, and I would ask. If it is just when a row last changed, columns on the table — modified by and modified on — written by the application, which is cheap and good enough for most screens. If it is a full history of what changed, then an audit table written by a trigger, or temporal tables, which SQL Server maintains for you and lets you query the table as it was at a point in time. If it is a compliance requirement about who read what, that is SQL Server Audit rather than anything application-level. The detail I would raise is that the application-level answer only works if every write goes through the application — a DBA running an update by hand bypasses it entirely, which is exactly the case an auditor asks about. Our documents carry the created and modified user and timestamp, and the approval screens keep their own trail because that is the part the business is actually asked to prove.",
+  followups: [
+    { q: "Triggers or application code?", a: "Triggers catch everything including direct updates, which is their advantage, and they are invisible to whoever is debugging later, which is their cost. I would use them where completeness genuinely matters and keep them thin." },
+    { q: "What about temporal tables?", a: "The cleanest option where the version supports it — the engine keeps the history table and you query with FOR SYSTEM_TIME. The trade is storage growth, so it needs a retention policy rather than being switched on and forgotten." }
+  ]
+},
+
+"sql-nolock": {
+  script: "It is read uncommitted under another name, and people reach for it as a performance fix without knowing what they are buying. It lets you read rows another transaction has written and not yet committed, so you can read a value that never existed once that transaction rolls back. That is the one everybody mentions. The two that matter more are that you can miss rows entirely, or read the same row twice, if a page split moves data while your scan is in flight — so a SUM or a COUNT with NOLOCK can simply be wrong, and wrong quietly. For a finance report that is unacceptable, and ours do not use it. Where I would accept it is a rough operational figure where approximate is genuinely fine and it is understood. The real fix for the blocking it is covering up is usually read committed snapshot isolation, which gives you a consistent read without the dirty read.",
+  followups: [
+    { q: "So never use it?", a: "Not never — on a monitoring dashboard where the number is indicative and nobody makes a decision on it, the trade is fine. The problem is that it gets pasted onto every query as a habit, including the ones where correctness is the whole point." },
+    { q: "What is the better alternative?", a: "Read committed snapshot isolation at the database level. Readers get the last committed version rather than blocking, which removes the reason people wanted NOLOCK. It costs you tempdb, so it is a decision rather than a free win." }
+  ]
+},
+
+"sql-datatypes": {
+  script: "The two choices that cost real money are varchar against nvarchar and decimal against float. nvarchar is Unicode at two bytes a character, so it is the right choice when you genuinely need non-English characters and twice the storage when you do not — and the index is twice the size with it. The thing that actually bites is mixing them: a parameter sent as nvarchar against a varchar column causes an implicit conversion and the seek turns into a scan, which is the single most common invisible performance bug I have seen in hand-written data access. Decimal against float is simpler and non-negotiable — float is binary floating point and cannot represent most decimal fractions exactly, so money in a float will eventually not add up. Every money and quantity column in our purchase orders and invoices is decimal with an explicit precision and scale, and the C# side matches it.",
+  followups: [
+    { q: "How do you spot the implicit conversion?", a: "The execution plan warns about it on the operator, and it shows up as a scan where you expected a seek. Matching the parameter type to the column — which is why I use Add with an explicit type rather than AddWithValue — prevents it." },
+    { q: "varchar(max) — any problem?", a: "It is stored off-row once it is large, it cannot be indexed as a key, and it tempts people into using it for everything. I size columns to what the data actually is and keep max for genuinely unbounded text." }
+  ]
+},
+
+"sql-null-functions": {
+  script: "ISNULL takes two arguments and returns the first non-null; COALESCE takes any number and returns the first non-null of them. The practical differences are worth knowing: COALESCE is the ANSI standard and takes more than two arguments, while ISNULL is SQL Server specific and determines its result type from the first argument, which can silently truncate — ISNULL over a short column with a longer fallback cuts the fallback off. NULLIF goes the other way: it returns NULL when two values are equal, and the use I actually have for it is guarding a divide by zero, NULLIF of the denominator and zero, so the result is NULL rather than an error. The thing underneath all three is that NULL is unknown rather than empty, so it never equals anything, not even another NULL — which is why it is IS NULL and not equals NULL, and why a NOT IN against a list containing a NULL returns nothing and baffles people.",
+  followups: [
+    { q: "Why does NOT IN with a NULL return no rows?", a: "Because the comparison against NULL is unknown rather than false, and NOT IN needs every comparison to be true. NOT EXISTS does not have that problem, which is why I prefer it." },
+    { q: "Does COALESCE hurt performance?", a: "Wrapped around a column in a WHERE clause, yes — it is a function on the column, so the predicate stops being SARGable and the seek is gone. In the SELECT list it is fine." }
+  ]
+},
+
+"sql-cursor": {
+  script: "A cursor walks a result set one row at a time, which is procedural thinking applied to a set-based engine. The cost is not subtle: each iteration is its own round of work, it holds locks and resources for the whole loop, and something that takes a second as a single UPDATE can take minutes as a cursor over the same rows. SQL Server is built to operate on sets, and the optimiser can do nothing useful with a loop. So my first instinct when I see one is to ask what it is actually doing, and the answer is usually a join, a window function or a CASE expression that nobody reached for. The place I would accept one is genuinely row-at-a-time administrative work — iterating over databases or tables to run maintenance — where there is no set-based equivalent. For business logic over data rows, almost never, and rewriting one set-based is one of the most reliable performance wins available.",
+  followups: [
+    { q: "What if the logic really is row by row?", a: "Then I would look again, because it usually is not — running totals, previous-row comparisons and ranking all have window functions now. If it genuinely is, I would consider doing it in application code over a batched read rather than holding a cursor open in the database." },
+    { q: "Are there cheaper cursor options?", a: "LOCAL FAST_FORWARD is considerably lighter than the default, so if one has to exist that is how I would declare it. That is mitigation, not a fix." }
+  ]
+},
+
+"sql-openquery": {
+  script: "A linked server is a connection from one SQL Server to another server or data source, and OPENQUERY is the way to send a statement to be executed on that remote side rather than locally. The distinction is the entire point. A four-part name — server, database, schema, object — looks convenient but it can pull a large amount of data across the link and filter it locally, because the local optimiser has poor information about the remote side. OPENQUERY sends the query over and brings back only the result, so the filtering happens where the data is. I would also say what I actually prefer, which is not to use linked servers for anything the application can do. They are hard to secure, the permissions are confusing, and they create a dependency between two databases that nobody can see from either side. For moving data between systems I would rather have an explicit integration — which is what our SAP sync is — than a linked server somebody discovers years later.",
+  followups: [
+    { q: "Can you parameterise OPENQUERY?", a: "Not directly — the string is static, which pushes people into building it with concatenation, and that is an injection risk. If I need parameters I would use sp_executesql on the remote side or a stored procedure there." },
+    { q: "Does it support transactions?", a: "Across a linked server it escalates to a distributed transaction, which needs MSDTC and brings its own operational problems. That is another reason I would rather do the coordination in the application." }
+  ]
+},
+
+"sql-index-types": {
+  script: "Beyond clustered and non-clustered, the ones worth knowing are covering, filtered, unique and columnstore. A covering index is not really a separate type — it is a non-clustered index with INCLUDE columns so the query can be answered entirely from the index without going back to the table, which removes the key lookup. A filtered index has a WHERE clause, so it only indexes part of the table, and that is genuinely useful on a status column where ninety per cent of rows are closed and every query wants the open ones — a much smaller index and a cheaper one to maintain. A unique index enforces a rule and gives the optimiser better information at the same time. Columnstore is for analytics rather than transactions — stored by column with heavy compression, enormous for aggregates over many rows, wrong for the single-row lookups an OLTP screen does. Our procurement screens use covering indexes on the filter columns, and status is exactly the case a filtered index suits.",
+  followups: [
+    { q: "How many indexes is too many?", a: "There is no number — every index costs you on insert, update and delete and in storage. I look at what is actually unused and what is a near-duplicate of something else, and I would rather widen an existing index than add a sixth." },
+    { q: "When does a filtered index not get used?", a: "When the query's predicate does not provably match the filter, including parameterised queries where the optimiser cannot be sure. That surprises people — it is there, it looks right, and the plan ignores it." }
+  ]
+},
+
+"sql-security": {
+  script: "Permissions go to roles, never to individual users, and the application connects as a least-privilege account rather than anything with sa. The specific thing I would say is that the application account should usually have EXECUTE on the procedures and nothing else — no direct table permissions at all — because then even a successful injection cannot select from a table the procedures do not touch. Schemas are the unit that makes that manageable: group objects into schemas by area, grant on the schema rather than object by object, and ownership chaining means a procedure can read a table the caller cannot. I would also mention that the permissions question and the connection-string question are the same question from two sides — the string is only as dangerous as the account in it, which is the argument for least privilege rather than for hiding the string better.",
+  followups: [
+    { q: "What about row-level security?", a: "It is the right tool when the rule is genuinely per row and must hold regardless of how the data is reached. We enforce vendor scoping in the application from a claim, which is fine while every path goes through the application — row-level security is what makes it true at the database." },
+    { q: "Views for security?", a: "They work for hiding columns and limiting rows, and they are simple. The limitation is that they are easy to bypass if the underlying table permission is still there, so the view has to come with the table permission removed." }
+  ]
+},
+
+"sql-tran-log": {
+  script: "Every change is written to the transaction log before it is written to the data file — that is what makes a rollback possible and what makes recovery after a crash possible. It grows for three main reasons. Long-running transactions, because the log cannot be truncated past the oldest active one, so a transaction left open holds the whole thing. Large single operations — one UPDATE over fifty million rows logs every one of them, which is why I batch anything large with a small delay between batches. And the recovery model: in full recovery the log is not truncated until a log backup runs, so a database in full recovery with no log backups will grow until the disk is gone, and that is the most common cause by far. The fix in that case is log backups rather than shrinking the file, because shrinking it just means it grows again and fragments while doing so.",
+  followups: [
+    { q: "Simple or full recovery?", a: "Full for production where point-in-time recovery matters, with log backups scheduled. Simple is fine for a dev or reporting copy where losing recent work is acceptable — and it is the right answer more often than people admit for those." },
+    { q: "Should you shrink the log?", a: "Only as a one-off after something exceptional, never on a schedule. Shrink-and-grow cycles cause fragmentation and the growth events themselves are a pause. Size it for what it actually needs." }
+  ]
+},
+
+"sql-ddl-changes": {
+  script: "For when, sys.objects has create_date and modify_date, and joining sys.procedures or sys.tables gives you the same thing per object type — so finding what changed recently is one query against the catalog views. The honest part of the answer is who, because that is not in the catalog at all. SQL Server does not record who altered an object anywhere you can query after the fact. To get that you need something that was already running before the change: the default trace, which holds object-change events for a limited window and rolls over; Extended Events or SQL Server Audit configured in advance; or a DDL trigger writing to an audit table. So if nobody set any of those up, the truthful answer is that you can see when and not who, and the real fix is source control — every schema change going through a script in git, which answers who, when and why without needing the server to remember.",
+  followups: [
+    { q: "What does the default trace give you?", a: "Object created, altered and dropped events, with the login — but it is a small rolling set of files, so it only helps if you look soon after. It is worth checking first because it is already on." },
+    { q: "How do you stop it happening?", a: "Nobody changes production schema by hand. Changes are scripted, reviewed and deployed through the release, with a rollback script. Then the question stops being forensic." }
+  ]
+},
 };
