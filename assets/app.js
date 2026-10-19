@@ -1190,6 +1190,10 @@
     var loading = row('bot', 'Q', '<div class="typing"><i></i><i></i><i></i></div>');
     thread.scrollTop = thread.scrollHeight;
 
+    // The dots were held for 140 ms so a reply would not appear to come
+    // from nowhere. The search has already finished by this point — the
+    // wait was manners, not work — and in an interview manners are not
+    // worth a seventh of a second, so they flash rather than linger.
     setTimeout(function () {
       var holder = loading.querySelector('.body');
       holder.innerHTML = '';                 // drop the typing dots
@@ -1250,7 +1254,7 @@
       loading.scrollIntoView({ behavior: 'smooth', block: 'start' });
       setTimeout(syncJump, 400);
       voiceFollowUp();
-    }, 140);
+    }, 55);
   }
 
   /* ---------- streaming ----------
@@ -1683,6 +1687,11 @@
         syncSend();
       }
       if (live) say('hearing', live.length > 90 ? '…' + live.slice(-88) : live);
+
+      // Answer while they are still speaking, when it is already obvious
+      // what they are asking. This is what removes the pause from the
+      // common case entirely.
+      maybeAnswerEarly(live);
       // A pause after the last final chunk means the question is finished.
       // 700 ms was short enough that an interviewer thinking mid-sentence
       // ("so... tell me... what dependency injection is") was heard as three
@@ -1691,10 +1700,16 @@
       // So the wait fits what was actually heard: something that already
       // reads as a whole question does not need protecting from itself,
       // while a fragment gets the longer pause it needs.
+      // Once the browser marks the transcript final AND the words already
+      // read as a finished question, the thing the pause was there to find
+      // out is already known. A short beat is still worth keeping, because
+      // a long question can be finalised in two chunks and the second is
+      // usually right behind the first — but 650 ms of it was waiting for
+      // an answer to a question that had been answered.
       clearTimeout(submitTimer);
       var heardSoFar = finalBuffer.replace(/\s+/g, ' ').trim();
       if (heardSoFar) {
-        submitTimer = setTimeout(submitHeard, soundsFinished(heardSoFar) ? 650 : 1300);
+        submitTimer = setTimeout(submitHeard, soundsFinished(heardSoFar) ? 300 : 1300);
       }
     };
 
@@ -1789,13 +1804,23 @@
   var BACKCHANNEL = /^(yes|yeah|yep|ya|no|nope|ok|okay|hmm+|mhm|uh+|um+|er+|right|sure|correct|exactly|true|fine|good|great|nice|thanks|thank you|got it|alright|sorry|hello|hi|hey|one minute|one moment|just a second|yes sir|no sir)[\s.,!?]*$/;
 
   // a question, however it starts
-  var ASK_OPENER = /^(what|why|how|when|where|which|who|whose|whom|can|could|would|will|shall|should|do|does|did|is|are|was|were|have|has|had|tell|explain|describe|define|give|write|show|list|name|compare|differentiate|suppose|imagine|walk|take|say)\b/;
+  // The coding round is asked as an instruction, not a question — "reverse a
+  // string", "find the second largest". Those are questions in every sense
+  // that matters here, so the imperatives belong in the same list.
+  var ASK_OPENER = /^(what|why|how|when|where|which|who|whose|whom|can|could|would|will|shall|should|do|does|did|is|are|was|were|have|has|had|tell|explain|describe|define|give|show|list|name|compare|differentiate|suppose|imagine|walk|take|say|write|reverse|find|check|implement|sort|remove|count|print|return|swap|merge|detect|validate|design|handle|solve)\b/;
   var ASK_INSIDE = /\b(what|why|how|when|which|difference|differences|different|explain|meaning|means|example|scenario|versus|vs|instead of|about)\b/;
 
   // you, mid-answer: "in my project I used", "we handled it by"
   var OWN_ANSWER = /\b(i|we|my|our)\s+(use|used|using|have|has|had|did|do|was|were|am|will|would|work|worked|build|built|create|created|handle|handled|implement|implemented|write|wrote|add|added|fix|fixed|face|faced|think|feel|believe|know|joined|started)\b|\b(my|our)\s+\w+(\s+\w+)?\s+(is|was|are|were)\b/;
 
+  /* Lower-cased first, every time. The browser hands back a capitalised
+     sentence — "What is dependency injection" — and these patterns are
+     anchored and case-sensitive, so testing the raw transcript quietly
+     answered false for every real question. fixSpoken happens to lower
+     its input, which is why this only showed up on the one path that
+     reads the transcript directly. */
   function looksLikeAQuestion(t) {
+    t = String(t || '').toLowerCase();
     if (/\?\s*$/.test(t)) return true;
     if (ASK_OPENER.test(t)) return true;
     return ASK_INSIDE.test(t) && t.split(' ').length >= 3;
@@ -1808,9 +1833,61 @@
   var DANGLING = /\b(the|a|an|of|for|in|on|at|to|with|and|or|but|your|my|our|their|its|this|that|these|those|about|between|from|is|are|do|does|did|can|how|what|why|when|which)$/;
 
   function soundsFinished(t) {
+    t = String(t || '').toLowerCase().trim();
     if (!looksLikeAQuestion(t)) return false;
     if (t.split(' ').length < 3) return false;      // too short to be sure
     return !DANGLING.test(t);                        // not left mid-phrase
+  }
+
+  /* ---- answering before they have finished the sentence ----------
+     Searching all 354 answers costs a few milliseconds, and the browser
+     streams a running transcript the whole time someone is talking. So
+     the pause was never needed to work out the answer — only to be sure
+     the question had ended.
+
+     Two guards make that safe to skip. The words must already read as a
+     finished question, and the same answer must come top twice running,
+     which is what tells you the transcript has settled rather than
+     still being revised mid-word. When both hold, the answer goes up
+     immediately — often before the interviewer stops talking.
+
+     Anything less certain falls through to the ordinary pause, so this
+     only ever makes the obvious cases faster; it never makes a doubtful
+     one wrong.                                                       */
+  var earlySeenId = null;      // what the previous interim pointed at
+  var earlyAnsweredId = null;  // what we have already put on screen
+
+  function resetEarly() { earlySeenId = null; earlyAnsweredId = null; }
+
+  function maybeAnswerEarly(live) {
+    if (busy || !live) return;
+    var fixed = fixSpoken(live);
+    if (!fixed || !soundsFinished(fixed)) { earlySeenId = null; return; }
+    if (BACKCHANNEL.test(fixed) || OWN_ANSWER.test(fixed)) { earlySeenId = null; return; }
+
+    var res = search(fixed, activeTopic);
+    if (!res.length || res[0].conf < CONFIDENT) { earlySeenId = null; return; }
+    var dominant = res.length < 2 || res[0].s >= 1.25 * res[1].s;
+    if (!dominant) { earlySeenId = null; return; }
+
+    var id = res[0].d.id;
+    if (id === earlyAnsweredId) return;          // already on screen
+    if (id !== earlySeenId) {
+      earlySeenId = id;
+      // Normally wait for the same answer to come top twice — that is what
+      // says the transcript has settled. A three-word question never gets a
+      // second look though ("explain async await" is finished the moment it
+      // is recognised), so one sighting is enough when the winner is not
+      // merely ahead but twice the score of anything else.
+      if (!(res.length > 1 && res[0].s >= 2 * res[1].s)) return;
+    }
+
+    earlyAnsweredId = id;
+    clearTimeout(submitTimer);
+    input.value = fixed;
+    input.classList.remove('interim');
+    say('working');
+    ask(fixed);
   }
 
   /* park it in the box without searching: nothing on screen is disturbed */
@@ -1830,6 +1907,17 @@
 
     var fixed = fixSpoken(heard);              // "sequel server" -> "sql server"
     if (!fixed) return;
+
+    // Already answered from the running transcript? Then the final text
+    // is the same question arriving late, and asking it again would put
+    // the answer on screen twice. Compared by answer rather than by
+    // wording, because the last word or two often changes right at the
+    // end ("...in asp dot net" arriving after the answer was obvious).
+    if (earlyAnsweredId) {
+      var settledOn = search(fixed, activeTopic);
+      if (settledOn.length && settledOn[0].d.id === earlyAnsweredId) { resetEarly(); return; }
+      resetEarly();                            // genuinely different — answer it
+    }
 
     if (looksLikeAQuestion(fixed)) {
       input.value = fixed;
@@ -1862,6 +1950,7 @@
     if (reason) { toast(reason); return; }
     wantListening = true;
     finalBuffer = '';
+    resetEarly();
     paintListening();
     startRecognition();
   }
@@ -1871,6 +1960,7 @@
     clearTimeout(restartTimer);
     clearTimeout(submitTimer);
     finalBuffer = '';
+    resetEarly();
     if (recog) { try { recog.abort(); } catch (e) {} }
     listening = false;
     paintListening();
