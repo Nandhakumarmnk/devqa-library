@@ -15,7 +15,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "sol-srp", topic: "solid", star: true,
   q: "Single Responsibility Principle (SRP) with example",
-  tags: ["srp", "single responsibility", "one reason to change", "separation of concerns"],
+  tags: ["srp", "single responsibility", "one reason to change", "separation of concerns", "how do you refactor legacy code", "single responsibility in methods"],
   simple: "One class, one job. If you can describe a class only by using the word and — it validates and saves and emails — it is doing too much.",
   answer: "A class should have one reason to change. If validation rules, database schema, and the email template all live in one class, any of those three changing forces me to edit and retest that class.\nSplitting it means each change touches one small file, unit tests are focused, and two developers can work on different concerns without conflicting.\nThe practical test I use: can I name the class without the word and?",
   code: "// before: three reasons to change\nclass OrderService { void Place(Order o){ Validate(o); SaveToDb(o); SendMail(o); } }\n\n// after\nclass OrderValidator  { ... }\nclass OrderRepository { ... }\nclass OrderMailer     { ... }\nclass OrderService    { /* orchestrates the three */ }",
@@ -70,7 +70,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "sol-oop-4", topic: "solid", star: true,
   q: "What are the four pillars of OOP?",
-  tags: ["oop", "four pillars", "encapsulation inheritance polymorphism abstraction", "oops concepts"],
+  tags: ["oop", "four pillars", "encapsulation inheritance polymorphism abstraction", "oops concepts", "where have you used oop in your project"],
   simple: "Encapsulation — hide the inside. Abstraction — show only what matters. Inheritance — reuse a parent. Polymorphism — the same call behaves differently per type.",
   answer: "- **Encapsulation**: keep fields private and expose controlled properties/methods, so an object protects its own state.\n- **Abstraction**: expose what a type does and hide how. Interfaces and abstract classes give you this.\n- **Inheritance**: a derived class reuses and specialises a base class. Powerful but easy to overuse — prefer composition when the relationship is not genuinely is-a.\n- **Polymorphism**: one interface, many implementations — compile-time via overloading, runtime via overriding.\nThe point of all four together is that calling code can stay the same while the implementation behind it changes.",
   code: "public abstract class BaseDocument            // abstraction\n{\n    private readonly List<string> _audit = new();   // encapsulation\n    public IReadOnlyList<string> Audit => _audit;\n    public abstract bool Validate();                // polymorphism\n}\npublic class Invoice : BaseDocument { ... }         // inheritance",
@@ -81,7 +81,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "sol-encap-abstract", topic: "solid",
   q: "Abstraction vs encapsulation — what is the difference?",
-  tags: ["abstraction vs encapsulation", "encapsulation", "abstraction", "data hiding"],
+  tags: ["abstraction vs encapsulation", "encapsulation", "abstraction", "data hiding", "how do you actually achieve encapsulation in c#"],
   simple: "Abstraction is about design — deciding what to show. Encapsulation is about protection — keeping the inside safe from outside meddling.",
   answer: "Abstraction happens at design time: I expose `ISapClient.PostInvoice()` and the caller never learns about the connection, retries, or payload format. It answers what.\nEncapsulation is implementation level: private fields, validation inside setters, no public mutable collections. It answers how it is protected.\nThey work together — abstraction gives a clean surface, encapsulation stops anyone reaching behind it and putting the object in an invalid state.",
   code: "public class PurchaseOrder {\n    private readonly List<PoLine> _lines = new();\n    public IReadOnlyList<PoLine> Lines => _lines;      // nobody can Add from outside\n    public void AddLine(PoLine l) {                     // rules enforced here\n        if (l.Qty <= 0) throw new ArgumentException(\"Qty must be positive\");\n        _lines.Add(l);\n    }\n}",
@@ -113,7 +113,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "sol-repository", topic: "solid", star: true,
   q: "Repository pattern — what is it and do you use it?",
-  tags: ["repository pattern", "unit of work", "data access layer", "generic repository"],
+  tags: ["repository pattern", "unit of work", "data access layer", "generic repository", "where does business logic go", "do you use the repository pattern", "explain the repository and unit of work patterns", "do you need a repository with ef"],
   simple: "A repository is a class that owns all the database code for one entity, so the rest of the app asks it for data instead of writing queries everywhere.",
   answer: "The repository sits between the business layer and the data layer and exposes collection-like methods — Get, Find, Add, Update. The service calls `IVendorRepository` and has no idea whether it is EF Core, Dapper or ADO.NET behind it.\nBenefits: query logic in one place, consumers are testable with a mocked interface, and the data technology can change without touching business code.\nFair criticism: EF Core's DbContext already is a Unit of Work plus repositories, so a thin generic repository over it can be pure ceremony. I use it where it earns its place — complex or reused queries — rather than wrapping everything blindly.",
   code: "public interface IVendorRepository {\n    Task<Vendor> GetAsync(int id);\n    Task<IReadOnlyList<Vendor>> SearchAsync(VendorFilter f);\n    Task AddAsync(Vendor v);\n}",
@@ -124,7 +124,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "sol-singleton", topic: "solid",
   q: "Singleton pattern — and what is wrong with it",
-  tags: ["singleton", "singleton pattern", "thread safe singleton", "static instance"],
+  tags: ["singleton", "singleton pattern", "thread safe singleton", "static instance", "explain singleton any risk"],
   simple: "Singleton means exactly one instance for the whole application. Useful for shared, stateless things — dangerous when it holds data that changes.",
   answer: "Classic implementation uses a private constructor plus a `Lazy<T>` static instance, which is thread-safe without manual locking. In ASP.NET Core I almost never hand-roll it — I register the service with `AddSingleton` so the container owns the lifetime and the class stays injectable and testable.\nProblems with the hand-rolled version: hidden global state, hard to mock, and any mutable field inside it is shared across all concurrent requests. Also remember a static singleton is per worker process, so it is not a cluster-wide guarantee.",
   code: "builder.Services.AddSingleton<ISapSettingsProvider, SapSettingsProvider>();  // preferred\n\n// hand-rolled, if ever needed\npublic sealed class Config {\n    private static readonly Lazy<Config> _i = new(() => new Config());\n    public static Config Instance => _i.Value;\n    private Config() { }\n}",
@@ -237,6 +237,47 @@ window.QA = (window.QA || []).concat([
   code: "// custom validation attribute - declare the rule once\npublic class GstinAttribute : ValidationAttribute\n{\n    public override bool IsValid(object value) =>\n        value is string s && s.Length == 15 && s.All(char.IsLetterOrDigit);\n}\npublic class VendorDto { [Gstin] public string Gstin { get; set; } }\n\n// custom middleware - Chain of Responsibility\npublic class CorrelationIdMiddleware\n{\n    private readonly RequestDelegate _next;\n    public async Task InvokeAsync(HttpContext ctx)\n    {\n        ctx.Items[\"cid\"] = Guid.NewGuid().ToString(\"N\");\n        await _next(ctx);\n    }\n}",
   project: "In the Vendor Portal the pipeline carries custom correlation-id and exception-handling middleware, the approval actions carry an audit filter, and the DTOs carry reusable validation attributes for the formats that appear on several screens. The document engine is the bigger one — Factory plus Strategy written by hand so a new document type is a class rather than a release.",
   remember: "Name the extension point and the pattern it is, then say what it replaced."
+}
+,
+
+{
+  id: "sol-test-types", topic: "solid",
+  q: "Unit, integration and end-to-end tests — what is the difference? What is mocking?",
+  tags: ["unit test", "integration test", "end to end test", "mocking", "Moq", "xUnit", "NUnit", "MSTest", "test pyramid", "code coverage", "unit vs integration vs end to end test", "nunit vs xunit vs mstest", "what is mocking", "what do moq and xunit do", "what code coverage should a project have", "have you done test driven development", "can you write a simple nunit test", "what testing do you follow"],
+  simple: "A unit test checks one class with everything around it faked. An integration test checks two or more real pieces together, usually including the database. End-to-end drives the whole application the way a user would. Mocking is how you fake the things around the unit.",
+  answer: "A unit test takes one class and tests its logic with every dependency replaced by a fake. No database, no HTTP, no file system. It should run in milliseconds and fail for exactly one reason.\nAn integration test puts real pieces together — a service against a real database, or an API endpoint through the real pipeline. Slower, and it catches the things unit tests cannot, like a wrong mapping or a migration that did not run.\nEnd-to-end drives the whole stack through the UI, usually with something like Selenium or Playwright. It catches the most and it is the most brittle, so you want a handful of those covering the critical paths, not hundreds.\nThat is the test pyramid: many unit tests, fewer integration, a few end-to-end.\nMocking is the technique that makes unit tests possible. Because my services take interfaces through the constructor, a test can hand in a fake repository that returns whatever the test needs — including throwing, so you can test the error path, which is nearly impossible against a real database. Moq is the usual library for that in .NET. xUnit, NUnit and MSTest are the test frameworks themselves; they are more alike than different, and xUnit is the common default on new .NET projects.\nI have to be straight about this though. I know these as concepts and my code is designed to be testable, but there is no automated test suite on my projects — testing was manual, through a QA team. I would rather say that than describe a suite I have not written.",
+  project: "The repository-behind-an-interface design in the Vendor Portal is exactly what makes a unit test possible — the service can be built with a fake and no database. The tests themselves were never written, and that is the first thing I would add.",
+  remember: "Unit fakes everything, integration uses the real thing, end-to-end drives the UI. And be honest: no suite yet."
+},
+
+{
+  id: "sol-coupling-cohesion", topic: "solid",
+  q: "What is coupling and cohesion?",
+  tags: ["coupling", "cohesion", "loose coupling", "high cohesion", "tight coupling", "class design", "separation", "what is coupling and cohesion"],
+  simple: "Cohesion is how well the things inside one class belong together. Coupling is how much one class depends on the details of another. You want high cohesion and loose coupling.",
+  answer: "Cohesion is about the inside of a class. A class with high cohesion does one job — an invoice service that validates, posts and queries invoices. A class with low cohesion is the one everybody has seen, called something like Helper or Manager, where someone put a date formatter next to an email sender next to a tax calculation. Nothing in it belongs together and nobody can safely change it.\nCoupling is about the wires between classes. Tight coupling is when my service does new SqlConnection inside a method — now it depends on that exact class, I cannot swap it, and I cannot test the service without a database. Loose coupling is when it takes an interface in its constructor and the container supplies the implementation.\nThe two work against each other if you push either too far. Split everything into tiny classes for the sake of cohesion and you get hundreds of files and a lot of plumbing. Decouple everything behind an interface and you get indirection for things that will never have a second implementation. I use the interface where there is a real reason — a second implementation, or wanting to test the class.\nThe practical test I apply in reviews is this: if I change the rule for how a document number is generated, how many files do I have to open? One means the design is right.",
+  project: "The document engine in Smart Documents is the good example — each document type is its own class behind one interface, so the engine knows nothing about any of them. Adding a type touches one new file.",
+  remember: "High cohesion inside, loose coupling between. Change one rule, open one file."
+},
+
+{
+  id: "sol-clean-onion", topic: "solid",
+  q: "What is Clean or Onion architecture?",
+  tags: ["clean architecture", "onion architecture", "layered architecture", "dependency rule", "domain layer", "infrastructure", "ports and adapters", "what is clean architecture", "what is onion architecture"],
+  simple: "Layers arranged so that every dependency points inwards, towards the business rules. The domain at the centre knows nothing about the database or the web; the outer layers depend on it, never the other way round.",
+  answer: "Picture rings. At the centre is the domain — the entities and the business rules, plain C# with no framework in it. Around that the application layer, with the use cases and the interfaces it needs, like IInvoiceRepository. Outside that the infrastructure — EF Core, SQL Server, the SAP client, the file system — and the presentation layer, the API or the UI.\nThe one rule that makes it work is that dependencies only ever point inwards. The domain does not reference EF. The application layer declares the interface it needs and the infrastructure implements it, so the arrow points in even though the data flows out. That is dependency inversion applied to the whole solution instead of one class.\nWhat you get is that the rules can be tested with no database at all, and swapping the data access does not touch the domain.\nWhat it costs is files and indirection. On a small service it is more ceremony than it is worth, and I would not apply it to a CRUD API with twelve endpoints.\nMy own projects are layered rather than strictly Clean — presentation, service, data access, with interfaces between them and the business rules kept out of the controllers. That is the same instinct without the full structure, and I would rather describe it accurately than claim the pattern by name.",
+  project: "The Vendor Portal is layered with interfaces between every layer and no business logic in the controllers. It is not Clean Architecture by the book, and I say so.",
+  remember: "All arrows point inwards. Domain knows nothing. Good for big; ceremony for small."
+},
+
+{
+  id: "sol-code-quality", topic: "solid",
+  q: "How do you enforce code quality and standards across a team?",
+  tags: ["code quality", "coding standards", "code review", "definition of done", "static analysis", "analyzers", "EditorConfig", "pull request", "technical debt", "how do you enforce coding standards across a team", "what does your code review process look like", "how do you ensure code quality across the team"],
+  simple: "Agree the standard once, let the tooling catch the mechanical things, and use the review for the things only a person can see. Then actually hold the line, kindly.",
+  answer: "I split it into three.\nThe mechanical part should not be argued about in reviews at all. An EditorConfig file and the built-in analyzers handle naming, formatting, unused variables, async methods without await. If a tool can catch it, a human should not be spending review time on it.\nThe review is for what tooling cannot see — is the business rule in the right layer, is this going to fall over at a thousand rows, is there a query inside a loop, what happens when this throws, has anyone thought about who is allowed to call it. On Smart Documents I raised sixty-five issues across thirty-seven files, and most of them were the same few patterns repeating, which told me the problem was shared understanding, not individual carelessness.\nThe third part is agreeing what done means before anyone starts — the design discussion at the top of a task, where we settle the API contract, the table changes and which layer owns which rule. Most review disagreements are really design disagreements that happened too late.\nOn tone, because this is the part that decides whether it works: I review the code, not the person, I explain why rather than just asking for a change, and I separate the things that must change from the things that are my preference. If I cannot say why, it is a preference and I let it go.\nAnd for repeated issues I pair on the first one rather than leaving the same comment five times.",
+  project: "This is what I actually do as Technical Lead. The sixty-five review issues on Smart Documents are the concrete example, and the fix was a short written standard plus pairing, not more comments.",
+  remember: "Tooling for the mechanical, review for the design, agree done up front. Review the code, not the person."
 }
 
 ]);

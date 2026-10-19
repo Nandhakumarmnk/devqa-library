@@ -4,7 +4,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "re-what", topic: "react", star: true,
   q: "What is React and what is the virtual DOM?",
-  tags: ["react", "virtual dom", "what is react", "reconciliation", "declarative ui"],
+  tags: ["react", "virtual dom", "what is react", "reconciliation", "declarative ui", "how much reactjs have you actually written", "where does react fit"],
   simple: "React is a library for building the UI out of small components. Instead of hand-editing the page, you describe what it should look like for the current data, and React works out the smallest change needed.",
   answer: "React is component-based and declarative. I write what the UI should be for a given state; React handles getting the DOM there.\nThe **virtual DOM** is a lightweight JavaScript representation of the UI. On a state change React builds a new tree, diffs it against the previous one (reconciliation), and applies only the differences to the real DOM. Real DOM updates are the expensive part, so batching them is where the performance comes from.\nCompared with jQuery, the big shift is that I no longer track which element to update — state is the single source of truth and the view follows it.",
   code: "function VendorBadge({ status }) {\n  return <span className={`badge ${status.toLowerCase()}`}>{status}</span>;\n}",
@@ -37,7 +37,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "re-useeffect", topic: "react", star: true,
   q: "How does useEffect work? (dependencies and cleanup)",
-  tags: ["useeffect", "dependency array", "cleanup function", "side effect", "infinite loop react"],
+  tags: ["useeffect", "dependency array", "cleanup function", "side effect", "infinite loop react", "what does an empty dependency array mean"],
   simple: "useEffect runs code after the render — fetching data, subscribing, setting a timer. The dependency array decides when it runs again, and the returned function cleans up.",
   answer: "`useEffect(fn, deps)`:\n- no array → runs after every render (almost always a bug)\n- `[]` → once after mount\n- `[id]` → whenever `id` changes\nThe function you return is the cleanup: it runs before the next effect and on unmount — cancel timers, unsubscribe, abort in-flight requests.\nTwo classic problems: an **infinite loop** when the effect sets state that is also in its dependencies, and a **stale closure** when a dependency is omitted so the effect keeps using the first render's values. Objects and functions recreated every render also break the comparison, which is where `useCallback`/`useMemo` come in.\nAnd an async function cannot be passed directly — declare it inside and call it.",
   code: "useEffect(() => {\n  const ctrl = new AbortController();\n  (async () => {\n    try {\n      const res = await api.get(`/vendors/${id}`, { signal: ctrl.signal });\n      setVendor(res.data);\n    } catch (e) { if (!ctrl.signal.aborted) setError(e); }\n  })();\n  return () => ctrl.abort();      // cleanup\n}, [id]);",
@@ -102,7 +102,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "re-context", topic: "react",
   q: "Context API and state management (and Redux)",
-  tags: ["usecontext", "context api", "redux", "prop drilling", "global state", "state management"],
+  tags: ["usecontext", "context api", "redux", "prop drilling", "global state", "state management", "what is prop drilling and how do you avoid it"],
   simple: "Context lets deeply nested components read shared data without passing props through every level. Redux is a bigger, more structured version for complex app-wide state.",
   answer: "`createContext` + a provider + `useContext` solves prop drilling for things that are genuinely global — the logged-in user, roles, theme, a notification handler.\nThe caveat: every consumer re-renders when the context value changes, so I split contexts by concern and memoise the provider value rather than putting the whole application state in one context.\nRedux (or Redux Toolkit/Zustand) earns its place when state is large, shared across many unrelated screens, or needs middleware and time-travel debugging. For server data, React Query-style caching is often the better answer than any global store, because most apparent global state is really cached API data.\nI would not add Redux to a portal that does not need it — that is complexity without benefit.",
   code: "const AuthContext = createContext(null);\nconst { user, roles } = useContext(AuthContext);",
@@ -156,7 +156,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "re-custom-hook", topic: "react",
   q: "What is a custom hook?",
-  tags: ["custom hook", "reusable logic", "usefetch", "hook extraction"],
+  tags: ["custom hook", "reusable logic", "usefetch", "hook extraction", "what are custom hooks and have you written any"],
   simple: "A custom hook is just a function starting with use that calls other hooks — a way to share logic between components, not UI.",
   answer: "When two components repeat the same stateful logic — fetching with loading and error, a debounced value, a form with validation, reading from localStorage — I extract it into a `useSomething` hook. Each component that calls it gets its own independent state; nothing is shared except the logic.\nThis is the hooks replacement for the old higher-order component and render-prop patterns, and it keeps components focused on rendering.",
   code: "function useApi(url) {\n  const [data, setData] = useState(null);\n  const [loading, setLoading] = useState(true);\n  const [error, setError] = useState(null);\n  useEffect(() => {\n    let on = true;\n    api.get(url)\n       .then(r => on && setData(r.data))\n       .catch(e => on && setError(e))\n       .finally(() => on && setLoading(false));\n    return () => { on = false; };\n  }, [url]);\n  return { data, loading, error };\n}",
@@ -231,7 +231,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "re-vs-angular", topic: "react",
   q: "React vs Angular — what is the difference?",
-  tags: ["react vs angular", "angular experience", "angular vs react", "framework comparison", "spa framework"],
+  tags: ["react vs angular", "angular experience", "angular vs react", "framework comparison", "spa framework", "have you worked with angular", "describe your angular experience"],
   simple: "React is a library for the view, and you choose the rest — routing, state, HTTP. Angular is a full framework that ships all of that with it, in TypeScript, with a stricter structure.",
   answer: "**React** — a UI library. JSX, components, hooks, one-way data flow. Routing (React Router), HTTP (axios/fetch) and state management are your choice. That means freedom and a smaller core, at the cost of decisions every team makes differently.\n**Angular** — a complete framework. TypeScript by default, its own DI container, RxJS observables, two-way binding with `[(ngModel)]`, modules, services, the CLI, and routing and HTTP built in. Opinionated, consistent across teams, steeper to learn.\nOther real differences: React uses a virtual DOM and re-renders by diffing; Angular compiles templates and tracks changes its own way. Angular's DI and service model will feel immediately familiar to a .NET developer — it is the same constructor-injection idea.\n**The choice in practice** is usually about the team, not the technology: Angular suits large enterprise teams that benefit from one prescribed way of doing things; React suits teams that want flexibility and a smaller surface.\n**If asked whether you know Angular** and you do not: say so directly, then say that the concepts transfer — components, DI, services, routing and one-way data flow are the same ideas you already use in React and .NET, and the gap is syntax and RxJS rather than architecture. That answer holds up; a bluff does not survive one question about observables.",
   project: "My SPA work is React — the Vendor Portal front end, its shared component set, and the API integration. I have not shipped an Angular application, and I would say that plainly rather than claim it; what I would point at instead is that Angular's dependency injection is the same pattern I use daily in ASP.NET Core.",

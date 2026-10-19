@@ -4,7 +4,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "cs-value-ref", topic: "csharp", star: true,
   q: "Difference between value type and reference type",
-  tags: ["value type vs reference type", "stack heap", "struct class", "pass by value"],
+  tags: ["value type vs reference type", "stack heap", "struct class", "pass by value", "where does each type live", "value type vs reference type and what is boxing"],
   simple: "A value type carries the actual data. A reference type carries the address of the data. Copy a value type and you get a second independent copy; copy a reference type and both names point at the same object.",
   answer: "Value types — `int`, `decimal`, `bool`, `DateTime`, `struct`, `enum` — hold the data directly and normally live on the stack or inline inside the containing object. Reference types — `class`, `string`, arrays, collections — hold a reference to an object on the managed heap.\n- Assigning a value type copies the data; assigning a reference type copies only the pointer.\n- A value type can never be null unless I make it `int?` (Nullable).\n- Equality: value types compare content by default, reference types compare identity unless the class overrides Equals.\n`string` is the usual trick question — it is a reference type but behaves like a value because it is immutable.",
   code: "int a = 5;  int b = a;  b = 9;          // a is still 5\nvar l1 = new List<int>{1}; var l2 = l1;\nl2.Add(2);                              // l1.Count is now 2 as well",
@@ -26,7 +26,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "cs-abstract-interface", topic: "csharp", star: true,
   q: "Abstract class vs interface",
-  tags: ["abstract class vs interface", "interface", "abstract", "when to use interface"],
+  tags: ["abstract class vs interface", "interface", "abstract", "when to use interface", "can an interface have method code now", "virtual method vs abstract method", "can you create an object of an abstract class", "why an interface why not call the class directly"],
   simple: "An interface is a contract — only what must exist. An abstract class is a half-built parent — it can also carry shared code and state.",
   answer: "An interface declares members with no implementation (default interface methods aside) and a class can implement many interfaces. An abstract class can hold fields, constructors, and concrete methods, but a class can inherit only one.\n- Use an interface when unrelated types must honour the same contract — `IEmailSender`, `IVendorRepository` — and for anything I want to inject or mock in tests.\n- Use an abstract class when several types share real logic and state and genuinely form an is-a family.\nIn day-to-day .NET work I reach for interfaces far more, because DI and unit testing both depend on them.",
   code: "public interface IVendorRepository {\n    Task<Vendor> GetAsync(int id);\n}\npublic abstract class BaseDocument {\n    public int Id { get; set; }\n    protected void Audit(string by) { /* shared code */ }\n    public abstract bool Validate();\n}",
@@ -37,7 +37,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "cs-async-await", topic: "csharp", star: true,
   q: "How does async await work in C#?",
-  tags: ["async await", "task", "asynchronous programming", "async programming"],
+  tags: ["async await", "task", "asynchronous programming", "async programming", "what is async await and why does it matter", "explain async await what actually happens", "how do you implement async in c#", "is that project fully async", "is this project fully async", "cpu-bound vs io-bound which needs async", "what problem does async solve"],
   simple: "async/await lets a thread walk away from a slow job — a database call or an HTTP call — instead of standing and waiting. When the result arrives, the method carries on from the same line.",
   answer: "Marking a method `async` lets me use `await`. At the await point, the compiler builds a state machine: the method returns to the caller, the thread goes back to the pool, and when the awaited Task completes the remainder is scheduled to continue.\nThe gain is throughput, not raw speed — one request is not faster, but the server handles many more at once because threads are not blocked on I/O.\nRules I stick to: async all the way down, return `Task`/`Task<T>` not `void` except for event handlers, and never call `.Result` or `.Wait()` on an async call because that can deadlock and wastes a thread.",
   code: "public async Task<IActionResult> GetVendor(int id)\n{\n    var vendor = await _repo.GetAsync(id);      // thread is released here\n    if (vendor == null) return NotFound();\n    return Ok(vendor);\n}",
@@ -48,7 +48,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "cs-task-thread", topic: "csharp",
   q: "Task vs Thread",
-  tags: ["task vs thread", "threadpool", "parallel", "task"],
+  tags: ["task vs thread", "threadpool", "parallel", "task", "how do you run long tasks without blocking the user"],
   simple: "A Thread is one real worker you create and manage. A Task is a unit of work you hand to the pool, and .NET decides which worker runs it.",
   answer: "`Thread` is a low-level OS thread — expensive to create (around 1 MB stack), and I own its lifetime. `Task` is a higher-level promise of work, usually scheduled on the thread pool, and it gives me continuations, cancellation tokens, exception capture, and `async/await` support for free.\nFor I/O-bound work a Task may use no thread at all while it waits. For CPU-bound work `Task.Run` borrows a pool thread.\nI only create a raw Thread for a long-running dedicated loop; otherwise Task is the right default.",
   project: "For background work in SAP Synchronization Services I did not hand-roll threads at all — Hangfire owns the worker side and my job methods are async Tasks. Inside a sync batch I use `await Task.WhenAll(...)` for a controlled set of independent calls instead of looping one by one.",
@@ -58,7 +58,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "cs-ienumerable-iqueryable", topic: "csharp", star: true,
   q: "IEnumerable vs IQueryable",
-  tags: ["ienumerable vs iqueryable", "iqueryable", "linq to sql", "deferred execution"],
+  tags: ["ienumerable vs iqueryable", "iqueryable", "linq to sql", "deferred execution", "ienumerable vs iqueryable very commonly asked"],
   simple: "IQueryable builds the SQL and makes the database do the filtering. IEnumerable pulls the rows into memory first and then filters in C#. Picking the wrong one can drag a whole table across the wire.",
   answer: "`IQueryable<T>` holds an expression tree. Any Where/OrderBy/Skip/Take I chain is translated into the SQL that EF Core finally sends, so filtering and paging happen on the server.\n`IEnumerable<T>` works on objects already in memory with LINQ to Objects. The moment I cast a DbSet to IEnumerable — or call `.ToList()` early — the rest of the query runs in C# after the full result set has been fetched.\nSo repository methods that are still composable return IQueryable; once I have the final data I return IEnumerable or a List.",
   code: "// Good — one filtered, paged SQL statement\nvar page = await _db.PurchaseOrders\n    .Where(p => p.VendorId == id && p.Status == \"OPEN\")\n    .OrderByDescending(p => p.CreatedOn)\n    .Skip(skip).Take(50).ToListAsync();\n\n// Bad — pulls every PO into memory, then filters\nvar bad = _db.PurchaseOrders.ToList().Where(p => p.VendorId == id);",
@@ -69,7 +69,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "cs-deferred", topic: "csharp",
   q: "What is deferred execution in LINQ?",
-  tags: ["deferred execution", "lazy evaluation linq", "tolist", "linq execution"],
+  tags: ["deferred execution", "lazy evaluation linq", "tolist", "linq execution", "what is a closure trap in linq"],
   simple: "A LINQ query is a recipe, not the food. Nothing runs until something asks for the results.",
   answer: "LINQ operators like Where, Select, OrderBy are lazy — they only build the query. Execution happens when I enumerate it: `foreach`, `ToList()`, `ToArray()`, `First()`, `Count()`, `Any()`.\nTwo consequences I watch for: the query can run twice if I enumerate it twice (two database round trips), and with EF Core a deferred query enumerated after the DbContext is disposed throws. So I compose freely, then materialise once with `ToListAsync()` at the point where I actually need the data.",
   project: "In the procurement reports I build the base query, conditionally add filters from the search panel, and only then call `ToListAsync()` — one trip, one SQL statement. The bug I had to fix in older code was a query being enumerated once for `Count()` and again for the grid, which doubled the database hits on a heavy screen.",
@@ -79,7 +79,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "cs-dispose", topic: "csharp",
   q: "Garbage collection, IDisposable and the using statement",
-  tags: ["garbage collection", "idisposable", "using statement", "dispose", "memory management"],
+  tags: ["garbage collection", "idisposable", "using statement", "dispose", "dispose pattern", "memory management", "finalizer", "memory leak", "managed vs unmanaged code", "how does garbage collection work", "what are generations and the loh", "what is a destructor"],
   simple: "The garbage collector cleans up memory for you, but it knows nothing about files, connections or sockets. Those you must close yourself — that is what IDisposable and using are for.",
   answer: "The GC manages the heap in generations: Gen 0 collects often and cheaply, survivors move to Gen 1 and Gen 2, and large objects go to the LOH. I do not free managed memory myself.\nUnmanaged resources — SQL connections, file handles, HttpClient streams — are different. A class that owns one implements `IDisposable`, and I wrap it in `using` so Dispose runs even if an exception is thrown. `using var x = ...` disposes at end of scope.\nThe classic leaks I look for are undisposed connections, event handlers never unsubscribed, and static collections that keep growing.",
   code: "using (var conn = new SqlConnection(_cs))\nusing (var cmd  = new SqlCommand(sql, conn))\n{\n    await conn.OpenAsync();\n    using var rdr = await cmd.ExecuteReaderAsync();\n    while (await rdr.ReadAsync()) { /* map */ }\n}   // connection returned to the pool here, even on error",
@@ -90,7 +90,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "cs-exception", topic: "csharp",
   q: "How do you handle exceptions in C#?",
-  tags: ["exception handling", "try catch finally", "throw vs throw ex", "global exception handling"],
+  tags: ["exception handling", "try catch finally", "throw vs throw ex", "global exception handling", "how do you handle exceptions across the application", "exception handling in a real application"],
   simple: "Catch only what you can actually deal with, never swallow an error silently, and keep the original stack trace.",
   answer: "try/catch/finally: finally always runs, so cleanup goes there (or use `using`). Rules I follow:\n- Catch specific exceptions before general ones — `SqlException` before `Exception`.\n- Use `throw;` to rethrow, never `throw ex;` — the second one resets the stack trace and you lose the original line.\n- Never catch and ignore. If there is nothing to do, let it bubble to a global handler.\n- Do not use exceptions for normal flow — validate instead; exceptions are expensive.\n- Log with context (user, record id, correlation id) and return a clean message to the caller, never the raw stack trace.",
   code: "try { await _sap.PostInvoiceAsync(doc); }\ncatch (SapConnectionException ex)\n{\n    _log.Error(ex, \"SAP down for invoice {Id}\", doc.Id);\n    throw;                      // keep the original stack trace\n}\nfinally { _metrics.Record(doc.Id); }",
@@ -219,7 +219,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "cs-lock", topic: "csharp",
   q: "How do you make code thread-safe?",
-  tags: ["thread safety", "lock", "race condition", "concurrentdictionary", "deadlock"],
+  tags: ["thread safety", "lock", "race condition", "concurrentdictionary", "deadlock", "what is a race condition", "how do you make lazy initialisation thread-safe", "what are your options for thread safety"],
   simple: "Two threads touching the same data at the same time can corrupt it. You either stop sharing the data, or you let only one thread in at a time.",
   answer: "Preferred order:\n1. Avoid shared mutable state — in ASP.NET Core most state is per request anyway.\n2. Use immutable objects.\n3. Use concurrent collections — `ConcurrentDictionary`, `ConcurrentQueue`.\n4. Only then `lock` on a private readonly object, around the smallest possible block.\nNever lock on `this`, a string, or a public object. Do not `await` inside a `lock` — use `SemaphoreSlim` for async mutual exclusion. Deadlock comes from two locks taken in different order, so if I need two I always take them in the same order.",
   code: "private static readonly object _gate = new object();\nlock (_gate) { _counter++; }\n\n// async version\nawait _semaphore.WaitAsync();\ntry { await DoWorkAsync(); } finally { _semaphore.Release(); }",
@@ -230,7 +230,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "cs-dotnet-core-framework", topic: "csharp",
   q: ".NET Framework vs .NET Core / .NET 8",
-  tags: [".net framework vs .net core", ".net 8", "cross platform", "migration"],
+  tags: [".net framework vs .net core", ".net 8", "cross platform", "migration", "how much of the estate is still net framework", "which asp net have you worked on web forms mvc or core"],
   simple: ".NET Framework is the old Windows-only one. .NET Core and now .NET 8 are the rebuilt, cross-platform, faster version, and that is where all new work goes.",
   answer: "Framework 4.8 is Windows-only, tied to IIS and the machine-wide install, and is in maintenance — it gets security fixes only.\n.NET 8 is cross-platform, side-by-side versioned, can be self-contained, has built-in DI, configuration and logging, Kestrel, and much better performance. It is an LTS release.\nDifferences that show up in real work: `Startup.cs`/`Program.cs` and the middleware pipeline instead of Global.asax and modules, built-in DI instead of Unity or Ninject, appsettings.json instead of web.config, and `System.Web`/HttpContext.Current being gone.",
   project: "Our platform is a mixed estate and I work across it — .NET 8 / ASP.NET Core for the Vendor Portal APIs and new services, MVC 5 on .NET Framework 4.8 for the established procurement modules we still maintain. New modules go on .NET 8; the legacy ones get maintained and hardened rather than rewritten wholesale.",
@@ -261,7 +261,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "cs-result-deadlock", topic: "csharp", star: true,
   q: "What is wrong with .Result and .Wait()?",
-  tags: [".result deadlock", ".wait deadlock", "async deadlock", "sync over async", "blocking async", "configureawait"],
+  tags: [".result deadlock", ".wait deadlock", "async deadlock", "sync over async", "blocking async", "configureawait", "why does result deadlock on the ui thread"],
   simple: "They block the current thread until the async work finishes. In a framework with a synchronisation context that is a classic deadlock, and even where it does not deadlock it wastes a thread and hides the real exception.",
   answer: "**Three separate problems:**\n1. **Deadlock.** In ASP.NET (classic) and WinForms/WPF there is a synchronisation context that wants the continuation to resume on the original thread. `.Result` is blocking that very thread, so the continuation can never run and both sides wait forever. ASP.NET **Core** has no synchronisation context, so it usually does not deadlock — but it is still wrong.\n2. **Thread starvation.** Even without a deadlock, the thread is blocked doing nothing while the I/O completes. Under load that exhausts the thread pool, and the symptom is an application that gets slower and slower rather than one that fails cleanly.\n3. **Worse exceptions.** `.Result` wraps whatever was thrown in an `AggregateException`, so the real exception is one level down and the stack trace is less useful.\n**The fix is to go async all the way** — `await` up through the service and the controller. `ConfigureAwait(false)` in library code avoids capturing the context and prevents the deadlock, but it is a mitigation, not permission to block.\n**The one place blocking is acceptable**: the top of a console `Main` in older C#, where there is no caller to await you.",
   code: "// deadlocks under a synchronisation context, wastes a thread everywhere\nvar vendor = _repo.GetAsync(id).Result;\n\n// correct - async all the way up\nvar vendor = await _repo.GetAsync(id);\n\n// library code that must not capture the context\nvar data = await _http.GetAsync(url).ConfigureAwait(false);",
@@ -336,7 +336,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "cs-pattern-matching", topic: "csharp",
   q: "Pattern matching and switch expressions",
-  tags: ["pattern matching", "switch expression", "is pattern", "when clause", "property pattern", "modern c#"],
+  tags: ["pattern matching", "switch expression", "is pattern", "when clause", "property pattern", "modern c#", "what newer c# features do you use", "what newer c# features do you actually use"],
   simple: "Pattern matching lets you test a value's shape and pull data out of it in one step. A switch expression is a switch that returns a value instead of running statements.",
   answer: "The forms I actually use:\n- **Type pattern** — `if (o is Vendor v)` tests and assigns in one line, replacing the old `as` plus null-check.\n- **switch expression** — `=>` arms that produce a value, with `_` as the default. Much tighter than a statement switch full of returns.\n- **Property patterns** — `{ Status: \"OPEN\", Total: > 10000 }` matches on the shape of an object.\n- **Relational and logical patterns** — `> 100`, `is not null`, `is 1 or 2`.\n- **Tuple patterns** — switch on more than one value at once.\n- **List patterns** (C# 11) — match the shape of a collection.\nThe compiler warns on a non-exhaustive switch expression, which catches the enum member somebody added and forgot to handle.\nThe caution: a switch expression that grows ten arms with nested conditions has become business logic in disguise — at that point it probably wants to be polymorphism, which is the Open/Closed argument.",
   code: "var band = po switch\n{\n    { Status: \"DRAFT\" }               => \"Not submitted\",\n    { Total: > 1_000_000 }            => \"Board approval\",\n    { Total: > 100_000, IsUrgent: true } => \"Director, expedited\",\n    null                              => throw new ArgumentNullException(nameof(po)),\n    _                                 => \"Manager\"\n};\n\nif (doc is Invoice inv && inv.Total > 0) Post(inv);   // test and assign",
@@ -432,7 +432,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "cs-property-field", topic: "csharp", star: true,
   q: "Property vs field — and what are get/set, init and auto-properties?",
-  tags: ["property vs field", "auto property", "getter setter", "init only", "backing field", "encapsulation property"],
+  tags: ["property vs field", "auto property", "getter setter", "init only", "backing field", "encapsulation property", "field vs property why not just use public fields"],
   simple: "A field is a plain variable. A property looks like a variable from outside but is really a pair of methods, so you can validate, compute or make it read-only without changing how callers use it.",
   answer: "A **field** stores data directly. A **property** exposes it through a `get` and optionally a `set`, which the compiler turns into methods.\nWhy that matters: a public field is a commitment you cannot take back. The day you need validation, logging or a computed value, changing a field to a property is a **binary breaking change** for any assembly compiled against it. So fields stay private and properties are the public surface.\nForms:\n- **Auto-property** — `public string Name { get; set; }` with a hidden backing field.\n- **Read-only** — `{ get; }`, settable only in the constructor.\n- **init-only** — `{ get; init; }` settable during object initialisation then frozen. The modern way to express immutability.\n- **Computed** — `public decimal Total => Qty * Rate;` with no stored value.\n- **Different accessibility** — `{ get; private set; }` is public to read, private to write.\nAlso: properties cannot be used as `ref`/`out` arguments, and data binding, serialisers and EF work with properties rather than fields.",
   code: "public class PoLine\n{\n    private decimal _qty;\n    public decimal Qty                      // validated on the way in\n    {\n        get => _qty;\n        set => _qty = value < 0 ? throw new ArgumentException(\"Qty cannot be negative\") : value;\n    }\n    public decimal Rate { get; init; }      // set once, then frozen\n    public decimal Total => Qty * Rate;     // computed, nothing stored\n}",
@@ -498,6 +498,38 @@ window.QA = (window.QA || []).concat([
   code: "public class SapUnavailableException : Exception\n{\n    public SapUnavailableException() { }\n    public SapUnavailableException(string message) : base(message) { }\n    public SapUnavailableException(string message, Exception inner) : base(message, inner) { }\n}\n\n// guard clauses at the top, before any work\nArgumentNullException.ThrowIfNull(dto);\nif (dto.Qty <= 0) throw new ArgumentOutOfRangeException(nameof(dto.Qty));",
   project: "The document and SAP layers use a small set of domain exceptions that the global handler maps onto status codes — so the API returns a 409 or a 503 with a readable message instead of the controller parsing exception text to work out what went wrong.",
   remember: "Throw Argument* for bad input, InvalidOperation for bad state. Custom only when someone will catch it specifically."
+}
+,
+
+{
+  id: "cs-indexer", topic: "csharp",
+  q: "What is an indexer in C#?",
+  tags: ["indexer", "this keyword indexer", "square bracket operator", "custom collection access", "indexed property"],
+  simple: "An indexer lets your own class be used with square brackets, the way a list or a dictionary is. You write a special property called `this` that takes a key.",
+  answer: "An indexer is a property that takes arguments, so an instance of your class can be read and written with `obj[key]` instead of `obj.GetItem(key)`.\nYou declare it with the `this` keyword:\n- **The syntax** — a property named `this` that takes a parameter, written as `public string this[string code]` with a get and a set\n- The parameter can be any type and there can be more than one — `this[int row, int col]` for a grid.\n- You can **overload** indexers, so the same class accepts both an `int` position and a `string` key.\n- It can be get-only, and in an interface it is declared the same way.\n**When it is worth it**: when the class genuinely *is* a collection or a lookup. A settings class, a typed wrapper over a configuration section, a matrix. `row[\"VendorCode\"]` on a DataRow is exactly this feature.\n**When it is not**: when the class is not a collection. Square brackets on something that is not indexable reads badly, and a named method is clearer.\n**The difference from an array**: an array index must be an integer and is bounds-checked by the runtime; an indexer is your code, so you decide the key type and what happens when it is not found — return null, return a default, or throw `KeyNotFoundException`.",
+  project: "The closest thing in my code is the configuration wrapper in the document engine, where a type code looks up its handler. I use the framework's indexers constantly — DataRow by column name in the ADO.NET mapping code, and Dictionary lookups.",
+  remember: "A property called this, taking a key. Only when the class really is a collection."
+}
+,
+
+{
+  id: "cs-static-danger", topic: "csharp",
+  q: "Why are static fields dangerous in a web application?",
+  tags: ["static field", "static variable", "shared state", "thread safety web", "memory leak static", "per request", "singleton state", "why are static fields dangerous in a web app"],
+  simple: "Because a web application serves every user from the same process. A static field is shared by all of them at once — so it is both a data leak and a thread-safety bug waiting to happen.",
+  answer: "In a desktop application a static field is one value for one user, which feels harmless. On a web server it is one value for everybody, and several requests are touching it at the same moment on different threads.\nTwo things go wrong. The first is correctness: if someone caches the current user, or the selected company, in a static field, then user A's request can overwrite it between user B reading it and using it. That is a data leak, and it shows up as an occasional impossible bug that nobody can reproduce — the worst kind.\nThe second is thread safety. A static List or Dictionary being written to by many threads will throw, or silently corrupt itself, because those collections are not thread-safe for concurrent writes.\nAnd there is a slower problem: a static collection is never garbage collected, because the type root keeps it alive. If something is added to it per request, memory climbs until the app pool recycles, and it looks like a leak because it is one.\nWhere static is fine: genuinely constant values, pure static methods that hold no state, and a thread-safe cache using ConcurrentDictionary or IMemoryCache with a sensible eviction policy.\nFor anything per-user, the right answer is scoped dependency injection, so the container gives each request its own instance.",
+  project: "This is the same mistake as injecting a scoped DbContext into a singleton, which is the bug I watch for in reviews — it gives you stale data and threading errors that only appear under load.",
+  remember: "Static is shared by every user at once. Per-user state belongs in a scoped service."
+},
+
+{
+  id: "cs-multiple-inheritance", topic: "csharp",
+  q: "Does C# support multiple inheritance?",
+  tags: ["multiple inheritance", "diamond problem", "multiple interfaces", "single base class", "default interface methods", "composition over inheritance", "what is inheritance does c# support multiple inheritance"],
+  simple: "Not for classes — a class can only inherit one base class. It can implement as many interfaces as you like, and that is how C# gives you the useful part without the problem.",
+  answer: "C# deliberately does not allow a class to inherit from two classes. The reason is the diamond problem: if B and C both inherit from A and both override the same method, and D inherits from B and C, nobody can say which version D gets. C++ allows it and the rules you need to resolve it are not worth the trouble.\nInterfaces are different, and a class can implement any number of them, because traditionally an interface carried no implementation — just a contract — so there was nothing to be ambiguous about.\nThat changed slightly in C# 8 with default interface methods, where an interface can supply a body. If you implement two interfaces that both provide a default for the same member, the compiler makes you say which one you mean, so the ambiguity is caught rather than guessed.\nIn practice when I want behaviour from two places I use composition rather than reaching for inheritance — the class holds the two things it needs and delegates to them. Inheritance is for a genuine is-a relationship, and I use a lot less of it than interfaces.",
+  project: "The document engine uses one abstract base for the shared audit and header behaviour, and interfaces for everything a type can do. One base class, several interfaces — which is exactly the shape the language pushes you towards.",
+  remember: "One base class, many interfaces. The diamond problem is why."
 }
 
 ]);

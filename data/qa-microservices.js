@@ -6,7 +6,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "ms-what", topic: "microservices", star: true,
   q: "What are microservices? Monolith vs microservices",
-  tags: ["microservices", "monolith vs microservices", "what is microservices", "service oriented"],
+  tags: ["microservices", "monolith vs microservices", "what is microservices", "service oriented", "what are microservices and what are the trade-offs", "monolith vs microservices which would you choose"],
   simple: "A monolith is one application holding every module. Microservices split it into small services that are deployed, scaled and owned separately, and talk to each other over the network.",
   answer: "A microservice owns one business capability, has its own deployment pipeline and usually its own data store, and is independently scalable and replaceable.\n**Benefits**: deploy one service without redeploying everything, scale only the hot service, teams work in parallel, and a failure can be contained.\n**Costs**: network calls instead of method calls, distributed transactions and eventual consistency, harder debugging, more infrastructure (gateway, discovery, tracing, CI/CD per service) and a real operational burden.\nThe mature answer is that microservices trade simplicity for independence. They pay off with multiple teams and genuinely different scaling or release needs; for a single team they mostly add overhead, and a well-structured modular monolith is often the better engineering decision.",
   project: "I want to be accurate about my own experience: the platform I work on is a multi-module enterprise application — procurement, inventory and supply chain modules behind a shared RESTful Web API layer, with SAP Synchronization Services running as a separate service. So I have built service-oriented, API-first components and a separately deployed integration service, rather than a full microservices estate with independent databases per service. The patterns I have applied directly are API versioning, JWT-based service security, background workers with retry and idempotent handlers, and keeping module boundaries clean inside the solution.",
@@ -67,7 +67,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "ms-tracing", topic: "microservices", star: true,
   q: "How do you debug a problem that spans several services?",
-  tags: ["distributed tracing", "correlation id", "centralized logging", "opentelemetry", "observability"],
+  tags: ["distributed tracing", "correlation id", "centralized logging", "opentelemetry", "observability", "how do you trace a request across several services"],
   simple: "Give every incoming request an id, pass it to every service it touches, and log it everywhere. Then one search shows the whole journey.",
   answer: "Three pillars: **logs** (what happened), **metrics** (how much and how fast) and **traces** (the path of one request).\nThe practical essentials:\n- A **correlation/trace id** created at the edge and propagated in a header to every downstream call and queued message.\n- **Centralised, structured logs** so you search across services in one place, not by RDP-ing into servers.\n- **Distributed tracing** (OpenTelemetry, Application Insights) to see the span waterfall and find which hop is slow.\n- **Health endpoints** and alerting on error rate and latency, not just on a process being up.\nWithout a correlation id, cross-service debugging is guesswork based on timestamps.",
   code: "// propagate the id on every outbound call\nrequest.Headers.Add(\"X-Correlation-Id\", _ctx.CorrelationId);\n_log.LogInformation(\"Posting invoice {Id} cid {Cid}\", id, _ctx.CorrelationId);",
@@ -88,7 +88,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "ms-when-not", topic: "microservices", star: true,
   q: "When should you NOT use microservices?",
-  tags: ["when not to use microservices", "modular monolith", "monolith first", "premature microservices"],
+  tags: ["when not to use microservices", "modular monolith", "monolith first", "premature microservices", "what are the disadvantages of microservices"],
   simple: "If one small team is building one product that deploys together, microservices add work and remove nothing. Start with a well-structured monolith and split only where you feel real pain.",
   answer: "Reasons not to split:\n- **Small team** — service count beyond team count means everyone owns everything anyway, plus the distributed overhead.\n- **Unclear domain boundaries** — splitting early at the wrong lines is extremely expensive to undo; a wrong boundary inside a monolith is a refactor, a wrong service boundary is a migration.\n- **No independent scaling or release need** — if everything deploys together anyway, you have paid the cost and kept none of the benefit.\n- **No infrastructure maturity** — without CI/CD per service, centralised logging, tracing and monitoring, you get a distributed system you cannot debug.\nThe recommended path is a **modular monolith** with clear internal boundaries, then extract a service when one part genuinely needs separate scaling, a separate release cadence, or a different team — the strangler-fig approach.",
   project: "That is a fair description of our platform and, I think, the right decision for it: multiple modules with clear boundaries and a shared API layer, deployed together, with only the SAP integration pulled out as its own service because it has genuinely different availability and scheduling needs. I would rather give that honest answer than claim a microservices estate I have not run.",
@@ -98,7 +98,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "ms-docker", topic: "microservices",
   q: "What is Docker and why containerise a .NET app?",
-  tags: ["docker", "container", "dockerfile", "image", "containerize .net", "image vs container vs registry", "docker registry"],
+  tags: ["docker", "container", "dockerfile", "image", "containerize .net", "image vs container vs registry", "docker registry", "what is docker in one line", "what is docker and why does it help"],
   simple: "A container packages the app with everything it needs to run, so it behaves the same on your laptop, in test and in production. It is much lighter than a virtual machine.",
   answer: "An image is the immutable package built from a Dockerfile; a container is a running instance. Containers share the host kernel, so they start in seconds and use far less memory than VMs.\nFor .NET the standard pattern is a multi-stage Dockerfile: build and publish with the SDK image, then copy the output into the much smaller ASP.NET runtime image.\nBenefits: identical environments, no it-works-on-my-machine, easy horizontal scaling, and a clean dependency boundary. Practical points: keep images small, do not bake secrets into the image, run as a non-root user, and pass configuration through environment variables.",
   code: "FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build\nWORKDIR /src\nCOPY . .\nRUN dotnet publish -c Release -o /app\n\nFROM mcr.microsoft.com/dotnet/aspnet:8.0\nWORKDIR /app\nCOPY --from=build /app .\nENTRYPOINT [\"dotnet\", \"VendorPortal.Api.dll\"]",
@@ -174,6 +174,17 @@ window.QA = (window.QA || []).concat([
   answer: "The **strangler fig** approach: new functionality and one extracted capability at a time run alongside the monolith behind a routing layer, which gradually takes over until the old code can be deleted. A big-bang rewrite is the standard way this fails.\nHow I would choose the first candidate: a bounded context with few dependencies, its own data, a clear business owner, and a real reason to be separate — different scaling, a different release cadence, or a different team. Something peripheral rather than the core domain, so an early mistake is cheap.\nSequence: carve the module boundary inside the monolith first, separate its data access, expose it behind an interface, then extract it. If you cannot cleanly separate it inside the codebase, you are certainly not ready to separate it across a network.\nThroughout, you need monitoring and a feature flag to route traffic back if the new path misbehaves.",
   project: "The SAP Synchronization Services is the closest thing I have done to this — integration logic that previously sat inside the application was built out as its own service with its own scheduling and retry behaviour, because it had genuinely different availability needs. Doing that one piece first, rather than reorganising everything, is the approach I would carry into a bigger decomposition.",
   remember: "Strangler fig, not rewrite. Clean the boundary in code before splitting it over a network."
+}
+,
+
+{
+  id: "ms-service-discovery", topic: "microservices",
+  q: "What is service discovery and how do services find each other?",
+  tags: ["service discovery", "service registry", "Consul", "Eureka", "client side discovery", "server side discovery", "DNS", "load balancer"],
+  simple: "In a dynamic environment service addresses keep changing, so services do not hold each other's addresses. They ask a registry — or a load balancer in front of the registry — for the current address by name.",
+  answer: "**The problem it solves**: hard-coding `http://10.0.1.7:5001` works until the instance moves, scales to three copies, or restarts on a different port. In a container or cloud environment that is constant.\n**The registry**: each instance **registers** itself on startup — name, address, health endpoint — and **deregisters** or fails its health check on the way out. Consul, Eureka and etcd do this; in Kubernetes it is built in, and a Service name resolves through cluster DNS.\n**Two shapes:**\n- **Client-side discovery** — the caller asks the registry for the instances and picks one itself, so it also does the load balancing. More control, more logic in every client.\n- **Server-side discovery** — the caller addresses a stable name and a load balancer or the platform routes it. Simpler clients; this is what Kubernetes gives you.\n**Health checks are the point.** A registry without them hands out addresses of dead instances, which is worse than a hard-coded one.\n**Honestly, where I sit**: my deployments are **IIS on Windows Server with fixed hostnames behind a load balancer**, so the addresses do not move and I have never needed a registry. I understand the pattern and why it exists; I have not operated Consul or Eureka in production, and I would say so rather than imply otherwise.",
+  project: "Not used in my estate — the services I split out are reached at fixed URLs held in configuration, which is honest to say and is the correct answer for the scale we run at.",
+  remember: "Register on start, health check, resolve by name. Client-side picks; server-side routes. I have not run one."
 }
 
 ]);

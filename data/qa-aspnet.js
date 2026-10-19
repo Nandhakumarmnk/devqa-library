@@ -4,7 +4,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-pipeline", topic: "aspnet", star: true,
   q: "What is middleware and how does the ASP.NET Core request pipeline work?",
-  tags: ["middleware", "request pipeline", "request lifecycle", "use vs run", "app.use"],
+  tags: ["middleware", "request pipeline", "request lifecycle", "use vs run", "app.use", "what does middleware do and does order matter", "what is middleware and why does order matter", "how do security checks become a pipeline gate"],
   simple: "Every request walks through a line of small components. Each one can look at the request, pass it on, and then look at the response on the way back. That line is the pipeline, and each component is middleware.",
   answer: "Middleware components are registered in `Program.cs` with `app.Use...` and run in the order they are added. Each one receives the `HttpContext` and a `next` delegate: it can do work, call `next()`, and then do more work as the response unwinds. Calling `app.Run` or not calling `next()` short-circuits the pipeline.\nOrder matters a lot: exception handling first, then HTTPS redirection and static files, then routing, then **authentication before authorization**, then the endpoints. Putting UseAuthorization before UseAuthentication is the classic bug — the user is not identified yet, so everything looks anonymous.\nCustom middleware is where I put correlation ids, request logging and global exception handling.",
   code: "app.UseExceptionHandler(\"/error\");\napp.UseHttpsRedirection();\napp.UseStaticFiles();\napp.UseRouting();\napp.UseCors(\"VendorPortal\");\napp.UseAuthentication();     // who are you\napp.UseAuthorization();      // what may you do\napp.MapControllers();",
@@ -26,7 +26,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-jwt", topic: "aspnet", star: true,
   q: "How does JWT authentication work?",
-  tags: ["jwt", "jwt authentication", "token based authentication", "bearer token", "claims"],
+  tags: ["jwt", "jwt authentication", "token based authentication", "bearer token", "claims", "how do you secure a web api", "how did you secure the api", "explain jwt how is it different from cookie authentication", "is jwt encrypted"],
   simple: "The user logs in once, the server hands back a signed token, and the browser sends that token with every later request. The server only checks the signature — it does not need to remember the session.",
   answer: "A JWT has three parts — header, payload (claims), signature — base64url encoded and dot-separated. On login I validate credentials and issue a token containing the user id, role and expiry, signed with a server-side key. The client sends it as `Authorization: Bearer <token>`, and the JWT middleware validates issuer, audience, lifetime and signature, then builds the ClaimsPrincipal that `[Authorize]` works against.\nKey points interviewers probe:\n- The payload is encoded, **not encrypted** — never put sensitive data in it.\n- It is stateless, so you cannot revoke a token before expiry; keep access tokens short-lived and use a refresh token for renewal.\n- Always HTTPS, validate the signing key, and never accept `alg: none`.",
   code: "builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)\n  .AddJwtBearer(o => o.TokenValidationParameters = new TokenValidationParameters {\n      ValidateIssuer = true, ValidateAudience = true,\n      ValidateLifetime = true, ValidateIssuerSigningKey = true,\n      IssuerSigningKey = new SymmetricSecurityKey(key)\n  });\n\n[Authorize(Roles = \"Buyer,Approver\")]\npublic async Task<IActionResult> Approve(int id) { ... }",
@@ -37,7 +37,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-authn-authz", topic: "aspnet",
   q: "Authentication vs authorization (and role-based access control)",
-  tags: ["authentication vs authorization", "rbac", "role based access", "authorize attribute", "claims", "idor", "insecure direct object reference", "broken object level authorization"],
+  tags: ["authentication vs authorization", "rbac", "role based access", "authorize attribute", "claims", "idor", "insecure direct object reference", "broken object level authorization", "is hiding a button by role security", "which comes first authentication or authorization", "how is authentication and authorisation done in your system"],
   simple: "Authentication = who are you. Authorization = what are you allowed to do. 401 means you did not prove who you are; 403 means you did, and you still cannot.",
   answer: "Authentication establishes identity — cookie, JWT, or ASP.NET Identity against the user store. Authorization decides access using roles, claims or policies.\nRBAC in practice: users get roles, roles get permissions, and endpoints declare what they need — `[Authorize(Roles = \"Admin\")]` or a policy like `RequireClaim(\"Permission\",\"PO.Approve\")`. Policies are better than roles once rules get finer than job titles.\nTwo rules I enforce: check on the server for every request (hiding a button is not security), and check ownership too — a vendor passing someone else's document id must get 403, not the document. That broken-object-level-authorization case is an OWASP item and a very common real bug.",
   code: "[Authorize(Policy = \"CanApprovePo\")]\npublic async Task<IActionResult> Approve(int id)\n{\n    var po = await _repo.GetAsync(id);\n    if (po.VendorId != User.VendorId()) return Forbid();   // ownership check\n    ...\n}",
@@ -48,7 +48,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-owasp", topic: "aspnet", star: true,
   q: "How do you prevent SQL injection, XSS and CSRF?",
-  tags: ["owasp", "sql injection", "xss", "csrf", "security", "vulnerability fix"],
+  tags: ["owasp", "sql injection", "xss", "csrf", "security", "vulnerability fix", "what is in the owasp top 10", "what is csrf and how do you stop it", "how do you prevent xss on the front end", "explain xss and its three types", "what does 500 vulnerabilities actually mean", "how were the 500 found", "how do you stop sql injection", "what security work have you actually done", "how do you approach securing an application you have just inherited"],
   simple: "SQL injection: never build SQL by sticking strings together — use parameters. XSS: never trust what a user typed when you print it back — encode it. CSRF: make sure a request really came from your own page — use anti-forgery tokens.",
   answer: "**SQL injection** — use parameterised queries or EF Core (which parameterises automatically). Never concatenate user input into SQL, including inside stored procedures using dynamic SQL. Use least-privilege database accounts.\n**XSS** — Razor encodes by default; the risk is `Html.Raw`, `innerHTML` in jQuery, and `dangerouslySetInnerHTML` in React. Encode on output, validate on input, sanitise any HTML you must keep, and add a Content-Security-Policy header.\n**CSRF** — anti-forgery token on every state-changing form post (`[ValidateAntiForgeryToken]`), SameSite cookies, and for token-based APIs the JWT in an Authorization header is not auto-sent by the browser, which removes most of the risk.\nAlso in the same family: security headers, no stack traces to the user, no secrets in source, and keeping packages patched.",
   code: "// parameterised — safe\ncmd.CommandText = \"SELECT * FROM Vendor WHERE Code = @code\";\ncmd.Parameters.AddWithValue(\"@code\", code);\n\n// EF Core interpolated query is parameterised too\nvar v = await _db.Vendors.FromSqlInterpolated($\"SELECT * FROM Vendor WHERE Code = {code}\").ToListAsync();",
@@ -59,7 +59,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-efcore-migrations", topic: "aspnet", star: true,
   q: "How do EF Core code-first migrations work?",
-  tags: ["ef core migrations", "code first", "add-migration", "update-database", "schema change"],
+  tags: ["ef core migrations", "code first", "add-migration", "update-database", "schema change", "how do you run a database migration safely for a release", "how do you ship a database change safely", "how do you handle database migrations and releases", "how do you run a migration on production"],
   simple: "You change the C# model, EF generates a migration file holding the SQL to move the database forward (Up) and back (Down), and you apply it to each environment.",
   answer: "`dotnet ef migrations add <Name>` compares the model against the last snapshot and generates Up/Down. `dotnet ef database update` applies pending migrations and records them in `__EFMigrationsHistory`.\nIn a real deployment I do not call `Database.Migrate()` blindly on startup in production — I generate the SQL script (`dotnet ef migrations script --idempotent`), review it, and run it as part of a controlled release with a matching rollback script.\nThings I watch: never edit an applied migration (add a new one), beware migrations that drop or rename columns because EF may generate drop-and-recreate and lose data, and always seed or back-fill data in a separate scripted step.",
   code: "dotnet ef migrations add AddVendorBankDetails\ndotnet ef database update\ndotnet ef migrations script --idempotent -o release_2026_10.sql",
@@ -70,7 +70,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-ef-tracking", topic: "aspnet", star: true,
   q: "EF Core performance — tracking, Include and the N+1 problem",
-  tags: ["asnotracking", "n+1 problem", "include eager loading", "lazy loading", "ef core performance"],
+  tags: ["asnotracking", "n+1 problem", "include eager loading", "lazy loading", "ef core performance", "what is n+1 and how did you fix one"],
   simple: "By default EF watches every object it loads so it can save changes — that costs memory. For read-only screens turn it off. And never query inside a loop, or you fire one query per row.",
   answer: "- **AsNoTracking()** for read-only queries: no change tracker entries, noticeably less memory and CPU on list and report screens.\n- **N+1**: loading a list then touching a navigation property per row issues one query per row. Fix with `Include`/`ThenInclude` (eager loading) or a projection that selects exactly what the screen needs.\n- **Projection** with `Select` into a DTO is usually the fastest — it generates a narrower SELECT instead of pulling whole entities.\n- **Lazy loading** is convenient and is the usual accidental cause of N+1; I keep it off.\n- Also: paginate with Skip/Take on the server, avoid `ToList()` before filtering, and use `AddDbContext` scoped (a DbContext is not thread-safe and should be short-lived).",
   code: "var rows = await _db.PurchaseOrders\n    .AsNoTracking()\n    .Where(p => p.VendorId == id)\n    .Select(p => new PoListDto {\n        Id = p.Id, Number = p.Number, Vendor = p.Vendor.Name, Total = p.Total })\n    .OrderByDescending(p => p.CreatedOn)\n    .Skip(skip).Take(50)\n    .ToListAsync();",
@@ -92,7 +92,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-di-lifetime", topic: "aspnet", star: true,
   q: "Transient vs Scoped vs Singleton in ASP.NET Core DI",
-  tags: ["di lifetime", "addscoped addsingleton addtransient", "service lifetime", "captive dependency"],
+  tags: ["di lifetime", "addscoped addsingleton addtransient", "service lifetime", "captive dependency", "what are the three di lifetimes", "which lifetime is dbcontext", "what is a dbcontext and the correct lifetime", "what is dependency injection and why does it matter in net core"],
   simple: "Transient = a new one every time you ask. Scoped = one per web request. Singleton = one for the whole application.",
   answer: "- **Transient** — new instance per resolution. Fine for small stateless services; wasteful if the object is expensive.\n- **Scoped** — one instance per HTTP request, shared by everything in that request. This is the right lifetime for DbContext, repositories and unit-of-work services, because everyone in the request shares the same transaction boundary.\n- **Singleton** — one for the process lifetime. Only for thread-safe, stateless things: configuration, caches, HttpClient factories.\nThe classic mistake is a **captive dependency** — injecting a scoped DbContext into a singleton. The singleton holds that DbContext forever, so it is shared across requests and threads, which leads to concurrency errors and stale data. ASP.NET Core will actually throw on this at startup in development.",
   code: "builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlServer(cs));   // scoped\nbuilder.Services.AddScoped<IVendorRepository, VendorRepository>();\nbuilder.Services.AddSingleton<IClock, SystemClock>();\nbuilder.Services.AddTransient<IEmailBuilder, EmailBuilder>();",
@@ -103,7 +103,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-filters", topic: "aspnet",
   q: "What are filters in ASP.NET Core?",
-  tags: ["action filter", "exception filter", "authorization filter", "filters", "attribute"],
+  tags: ["action filter", "exception filter", "authorization filter", "filters", "attribute", "what are filters or attributes in mvc and where did you use them"],
   simple: "Filters are hooks that run around your controller action — before it, after it, or when it throws — so cross-cutting code does not get copy-pasted into every action.",
   answer: "Order of execution: Authorization → Resource → Action → Exception → Result. Each is an attribute or a class registered globally.\n- **Authorization filter** — access checks, runs first.\n- **Action filter** — before/after the action, for logging, validation, timing.\n- **Exception filter** — catch and convert unhandled errors to a consistent response.\n- **Result filter** — around the response formatting.\nFilters are MVC-aware (they know the action and model), while middleware is lower level and sees only the HttpContext. I use middleware for pipeline-wide concerns and filters for things that need to know about the action.",
   code: "public class AuditActionFilter : IAsyncActionFilter {\n    public async Task OnActionExecutionAsync(ActionExecutingContext c, ActionExecutionDelegate next) {\n        _log.Information(\"{User} called {Action}\", c.HttpContext.User.Identity.Name, c.ActionDescriptor.DisplayName);\n        await next();\n    }\n}",
@@ -114,7 +114,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-validation", topic: "aspnet",
   q: "How do you validate input in ASP.NET Core?",
-  tags: ["model validation", "data annotations", "modelstate", "fluentvalidation", "server side validation"],
+  tags: ["model validation", "data annotations", "modelstate", "fluentvalidation", "server side validation", "how does model binding work", "how do you validate input"],
   simple: "Validate on the client so the user gets fast feedback, and validate again on the server because the client can be bypassed.",
   answer: "Data annotations on the DTO — `[Required]`, `[StringLength]`, `[Range]`, `[EmailAddress]`, `[RegularExpression]` — plus `IValidatableObject` or FluentValidation for cross-field rules. With `[ApiController]` the framework returns a 400 with the validation problem details automatically; in MVC I check `ModelState.IsValid`.\nI return errors keyed by field so the UI can show them inline. And I never rely on client-side validation alone: it is a UX feature, not a security control — a request can always be replayed with Postman.",
   code: "public class CreateVendorDto {\n    [Required, StringLength(120)] public string Name { get; set; }\n    [Required, RegularExpression(\"^[0-9A-Z]{15}$\")] public string Gstin { get; set; }\n    [EmailAddress] public string Email { get; set; }\n}",
@@ -125,7 +125,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-config", topic: "aspnet",
   q: "How do you manage configuration and secrets across environments?",
-  tags: ["appsettings", "ioptions", "configuration", "environment variables", "connection string secret"],
+  tags: ["appsettings", "ioptions", "configuration", "environment variables", "connection string secret", "how would you secure secrets in the cloud"],
   simple: "Settings live in appsettings.json, each environment overrides what it needs, and passwords never go into source control.",
   answer: "Configuration is layered — appsettings.json, then appsettings.{Environment}.json, then environment variables, then command line — with later sources overriding earlier ones. `ASPNETCORE_ENVIRONMENT` selects the environment file.\nI bind sections to strongly typed classes with the Options pattern (`IOptions<SapSettings>`) rather than reading magic strings everywhere.\nSecrets: user-secrets locally, environment variables or a vault in production, never a password committed to Git. Connection strings for production are set on the server, not in the repo.",
   code: "builder.Services.Configure<SapSettings>(builder.Configuration.GetSection(\"Sap\"));\n\npublic SapClient(IOptions<SapSettings> options) { _cfg = options.Value; }",
@@ -136,7 +136,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-cors", topic: "aspnet",
   q: "What is CORS and when did you need it?",
-  tags: ["cors", "cross origin", "access-control-allow-origin", "preflight"],
+  tags: ["cors", "cross origin", "access-control-allow-origin", "preflight", "what is cors and why does it matter to you"],
   simple: "Browsers block a page on one domain from calling an API on another domain unless the API says it is allowed. CORS is that permission.",
   answer: "Same-origin policy blocks cross-origin XHR/fetch by default. The API opts in by returning `Access-Control-Allow-Origin` and friends. For anything other than a simple request the browser first sends an OPTIONS preflight asking which origins, methods and headers are allowed.\nIn ASP.NET Core I register a named policy and place `UseCors` after `UseRouting` and before `UseAuthorization`. I list the exact origins — `AllowAnyOrigin` with credentials is not even legal, and a wildcard on an authenticated API is a security finding.",
   code: "builder.Services.AddCors(o => o.AddPolicy(\"VendorPortal\", p => p\n    .WithOrigins(\"https://vendors.example.com\")\n    .AllowAnyHeader().AllowAnyMethod().AllowCredentials()));\napp.UseCors(\"VendorPortal\");",
@@ -157,7 +157,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-cache", topic: "aspnet",
   q: "How do you use caching in a .NET application?",
-  tags: ["caching", "imemorycache", "distributed cache", "redis", "response caching", "cache invalidation"],
+  tags: ["caching", "imemorycache", "distributed cache", "redis", "response caching", "cache invalidation", "how would you add caching", "what do you cache and what do you never cache", "what caching have you used", "what are the caching strategies"],
   simple: "Cache the things that are read constantly and change rarely. The hard part is not storing it — it is knowing when to throw it away.",
   answer: "Levels I consider:\n- **IMemoryCache** — in-process, fastest, but per server; with multiple IIS workers or a farm each has its own copy.\n- **IDistributedCache / Redis** — shared across instances, survives a recycle, needed once you scale out.\n- **Response/output caching** and client caching headers for whole responses.\n- **Database-level** — indexed views, or a precomputed summary table for heavy reports.\nI cache lookup and master data (status lists, UOM, tax codes) with an absolute or sliding expiry, and I invalidate explicitly when the underlying master is edited. I do not cache user-specific or permission-sensitive data without keying it by user, because that leaks one user's data to another.",
   code: "var statuses = await _cache.GetOrCreateAsync(\"po-status-list\", entry => {\n    entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(6);\n    return _repo.GetStatusesAsync();\n});",
@@ -168,7 +168,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-logging", topic: "aspnet",
   q: "How do you handle logging and troubleshoot a production issue?",
-  tags: ["logging", "ilogger", "log4net", "elmah", "serilog", "production issue", "debugging production"],
+  tags: ["logging", "ilogger", "log4net", "elmah", "serilog", "production issue", "debugging production", "how do you handle errors globally in a web api", "how do you monitor and diagnose a production issue", "how do you handle exceptions and logging", "how do you handle errors and logging", "how do you debug a javascript problem in production"],
   simple: "Log enough to answer what happened, to whom, and when — without logging passwords or personal data. Then follow the trail from the user's report to the exact request.",
   answer: "I use `ILogger<T>` with structured messages and levels that mean something — Information for business events, Warning for recoverable oddities, Error for failures with the exception object attached. Each request carries a correlation id so a single user action can be followed across layers.\nMy production triage order: reproduce or get the exact time and user, pull the error from ELMAH/log4net around that time, check whether it is data-specific or systemic, look at recent deployments, check the database (blocking, long-running query, deadlock) and IIS/event logs, then fix forward or roll back if the release is the cause.\nWhat never goes in a log: passwords, tokens, full card or bank numbers, and whole request bodies containing personal data.",
   code: "_log.LogError(ex, \"SAP post failed for invoice {InvoiceId} vendor {VendorId}\", id, vendorId);",
@@ -179,7 +179,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-hangfire", topic: "aspnet", star: true,
   q: "How do you run background jobs in .NET? (Hangfire)",
-  tags: ["hangfire", "background job", "scheduled job", "recurring job", "retry", "ihostedservice"],
+  tags: ["hangfire", "background job", "scheduled job", "recurring job", "retry", "ihostedservice", "how do you run background or long-running work"],
   simple: "Work that is slow or must happen on a schedule should not run inside the user's request. You queue it, a background worker picks it up, and it retries if it fails.",
   answer: "Options in .NET: `IHostedService`/`BackgroundService` for in-process work, Hangfire for persisted jobs with a dashboard and retries, or an external scheduler/queue once you need to scale out.\nHangfire stores jobs in SQL Server, so a queued job survives an app pool recycle. It supports fire-and-forget, delayed, recurring (cron) and continuation jobs, with automatic retry and a monitoring dashboard.\nThings I design for: jobs must be **idempotent** because a retry can run the same work twice, long jobs should be chunked, failures need alerting rather than silent retrying forever, and under IIS the app pool idle timeout must be disabled or the worker stops.",
   code: "RecurringJob.AddOrUpdate<ISapSyncJob>(\"vendor-sync\",\n    j => j.SyncVendorsAsync(), \"*/15 * * * *\");       // every 15 minutes\n\nBackgroundJob.Enqueue<IInvoiceJob>(j => j.PostAsync(invoiceId));",
@@ -190,7 +190,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-iis", topic: "aspnet",
   q: "How do you deploy and host a .NET application on IIS?",
-  tags: ["iis", "deployment", "app pool", "kestrel", "hosting", "ssl", "release", "zero downtime deployment", "app_offline", "deployment slots"],
+  tags: ["iis", "deployment", "app pool", "kestrel", "hosting", "ssl", "release", "zero downtime deployment", "app_offline", "deployment slots", "what is kestrel and why put iis in front of it", "how is the application configured and deployed"],
   simple: "Publish the app, drop it in a folder on the server, point an IIS site at it with its own app pool, bind HTTPS, and keep a way to put the old version back.",
   answer: "ASP.NET Core runs on Kestrel with IIS acting as a reverse proxy through the ASP.NET Core Module — IIS handles the ports, SSL and process management; Kestrel runs the app. The published folder plus `web.config` is what gets deployed.\nMy checklist: app pool set to No Managed Code for Core apps and a dedicated identity, HTTPS binding with a valid certificate and HSTS, `ASPNETCORE_ENVIRONMENT` set to Production, folder permissions for the pool identity, and a smoke test after the swap.\nI deploy in off-peak windows, take a backup of the current build and database first, apply database scripts before the app files, and keep the matching rollback script ready. Recycling or `app_offline.htm` handles the file lock during the swap.",
   project: "Release and deployment management is one of my responsibilities. I manage IIS hosting and SSL setup, deploy in scheduled off-peak windows with pre-tested rollback scripts, run post-deployment validation, and then support QA, UAT and business teams after go-live. Doing it in planned windows with a rehearsed rollback is how we meet the SLA commitments.",
@@ -253,7 +253,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-viewmodel-dto", topic: "aspnet", star: true,
   q: "Model, ViewModel and DTO — what is the difference?",
-  tags: ["model vs viewmodel vs dto", "dto", "viewmodel", "entity vs dto", "automapper"],
+  tags: ["model vs viewmodel vs dto", "dto", "viewmodel", "entity vs dto", "automapper", "why use a dto instead of returning the entity"],
   simple: "Model is the database entity. ViewModel is exactly the fields one screen needs. DTO is what crosses an API boundary. They look similar and they are not the same thing.",
   answer: "- **Model / entity** — maps to the table. Owned by the data layer, carries every column including internal ones.\n- **ViewModel** — shaped for one screen: the fields that screen shows, plus whatever it needs for validation and dropdowns. It can combine several entities.\n- **DTO** — the contract on the wire. It is the public shape of your API, so changing it breaks callers.\nI never send the entity straight to a view or to an API caller. Three reasons: the response stays small, internal columns do not leak out, and over-posting is blocked — a user cannot set `IsApproved` or `CreatedBy` just by adding it to the JSON, because the DTO has no such property.\nMapping can be by hand or with AutoMapper. Hand-written mapping is more code but it is explicit, and it fails at compile time when a property changes.",
   code: "public class PurchaseOrder { public int Id; public decimal Total; public int CreatedBy; /* entity */ }\n\npublic record PoListDto(int Id, string Number, decimal Total);   // what the API returns\n\npublic class PoEditViewModel {                                   // what one screen needs\n    public PoListDto Po { get; set; }\n    public List<SelectListItem> Vendors { get; set; }\n}",
@@ -264,7 +264,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-signalr", topic: "aspnet",
   q: "What is SignalR and where did you use it?",
-  tags: ["signalr", "websocket", "real time", "push notification", "progress bar", "hub"],
+  tags: ["signalr", "websocket", "real time", "push notification", "progress bar", "hub", "how do you push live data to a screen"],
   simple: "SignalR lets the server push a message to an open browser page, instead of the page asking again and again whether anything has changed.",
   answer: "SignalR is the real-time library in ASP.NET Core. It negotiates the best available transport — WebSockets first, falling back to Server-Sent Events or long polling — and hides that behind a simple hub API. The server calls a method on the client; the client calls a method on the hub.\nWhere it earns its place: progress for a long-running job, live dashboards, notifications, and anything where the alternative is the browser polling every few seconds and mostly being told nothing changed.\nThings to plan for: with more than one server you need a backplane (Redis or Azure SignalR) so a message reaches a client connected to a different instance, hubs should be thin and push work to a service, and connections must be grouped or targeted by user so one tenant's progress is not broadcast to everyone.",
   code: "await _hub.Clients.Group(jobId)\n    .SendAsync(\"progress\", new { done = processed, total = rowCount });",
@@ -286,12 +286,112 @@ window.QA = (window.QA || []).concat([
 {
   id: "net-crypto", topic: "aspnet", star: true,
   q: "Hashing vs encryption, and symmetric vs asymmetric",
-  tags: ["hashing vs encryption", "symmetric vs asymmetric", "password hashing", "bcrypt", "aes rsa", "salt", "encryption basics"],
+  tags: ["hashing vs encryption", "symmetric vs asymmetric", "password hashing", "bcrypt", "aes rsa", "salt", "encryption basics", "how should passwords be stored", "what is pbkdf2"],
   simple: "Hashing is one way — you can check a value but never get it back. Encryption is two way — it is meant to be reversed with a key. Passwords are hashed, data you need to read again is encrypted.",
   answer: "**Hashing** is one-directional: same input gives the same hash, and you cannot reverse it. It is for verification — passwords, file integrity, signatures.\n- For **passwords** use a deliberately slow algorithm designed for it: bcrypt, scrypt, Argon2, or PBKDF2 (which is what ASP.NET Identity uses). Never plain SHA-256 or MD5 — they are fast, which is exactly what an attacker wants.\n- A **salt** (unique per user, stored alongside) stops precomputed rainbow tables and stops two users with the same password having the same hash.\n**Encryption** is reversible with a key, and is for data you must read back — connection strings, stored bank details, data in transit.\n- **Symmetric** (AES) — one key encrypts and decrypts. Fast, good for bulk data. The hard part is sharing the key safely.\n- **Asymmetric** (RSA, ECC) — a public key encrypts, a private key decrypts. Solves key distribution, but is slow for large payloads.\n- **TLS uses both**: asymmetric to agree a session key, then symmetric for the actual traffic, because that is the combination that is both safe and fast.\n**Encoding is neither.** Base64 is not security — it is reversible by anyone, and a JWT payload is encoded, not encrypted.\n**The practical rules**: never write your own crypto, never store a password you could read back, keep keys outside source control, and rotate them.",
   code: "// password - ASP.NET Identity does salting + PBKDF2 for you\nvar result = await _userManager.CreateAsync(user, password);\n\n// wrong, every time\nvar bad = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(password)));",
   project: "Our applications use ASP.NET Identity for credentials, so password hashing and salting are handled by the framework rather than hand-rolled. On the encryption side, the connection string in the BI application is encrypted in config and decrypted at startup — plain-text credentials in a deployed config were one of the categories in the security remediation work.",
   remember: "Hash passwords (slow algorithm + salt), encrypt data you must read back. Symmetric is fast, asymmetric solves key sharing. Base64 is not encryption."
+}
+,
+
+{
+  id: "net-security-headers", topic: "aspnet",
+  q: "Which security headers do you set?",
+  tags: ["security headers", "HSTS", "content security policy", "CSP", "X-Frame-Options", "X-Content-Type-Options", "clickjacking", "referrer policy", "server header", "what security headers do you set"],
+  simple: "Six of them, and I know them by heart because a penetration test failed us on every one. HSTS, X-Content-Type-Options, X-Frame-Options, a content security policy, a referrer policy, and removing the headers that tell an attacker what you are running.",
+  answer: "These came out of the VAPT audit, where missing headers were a whole category of findings on their own.\nHSTS tells the browser to only ever use HTTPS for this site, so a downgrade to plain HTTP cannot happen even on the first redirect.\nX-Content-Type-Options set to nosniff stops the browser guessing a file is a script when the server said it was text. That matters a lot on a site that serves user-uploaded documents, which ours does.\nX-Frame-Options, or frame-ancestors in a CSP, stops someone putting my page inside an invisible iframe on their site and tricking a logged-in user into clicking something. That is clickjacking.\nThe content security policy is the big one and the hardest to retrofit. It lists where scripts and styles are allowed to load from, so even if an attacker gets a script onto the page, the browser refuses to run it. On an old codebase full of inline handlers you have to clean those up first, which is why it takes real work rather than one line of config.\nReferrer-Policy, so a document URL with an id in it is not leaked to whatever site the user clicks through to.\nAnd then taking headers away — Server, X-Powered-By, X-AspNet-Version. They tell an attacker exactly what version you are running and they buy you nothing.\nIn ASP.NET Core I add these in middleware, early in the pipeline, so every response carries them. In the MVC 5 applications they go in web.config, and the ones IIS adds itself get removed there too.",
+  project: "All six went on during the VAPT remediation on Smart Documents. Before that we had none of them, and the report listed each one as a separate finding — which is why I can name them without looking them up.",
+  remember: "HSTS, nosniff, frame options, CSP, referrer policy, and delete the version headers."
+},
+
+{
+  id: "net-partial-viewcomponent", topic: "aspnet",
+  q: "Partial View vs View Component — when do you use each?",
+  tags: ["partial view", "view component", "razor", "reusable UI", "child action", "invoke async"],
+  simple: "A partial view is a chunk of markup that renders with the data the parent hands it. A view component is a partial view that can fetch its own data. If it needs to go to the database, it is a view component.",
+  answer: "A partial view is just markup you have pulled out so you can reuse it — a vendor address block, a row template for a grid. It has no logic of its own and no way to get data; whatever the parent view passes in is what it renders.\nA view component is a small class with an Invoke or InvokeAsync method, plus its own view. Because it is a class, it can take dependencies through the constructor and go and fetch what it needs. It does not go through model binding or the action filter pipeline, and it is not reachable by a URL — it is only ever rendered from a view.\nThe rule I use is simple: if the thing on the screen needs its own data, it is a view component. A notification count in the header, an approval-pending badge, a dashboard tile — those all have to query something, and I do not want to load that into every controller action just because the layout shows it.\nIf it is purely presentational, a partial view is lighter and clearer.\nIn MVC 5 the older equivalent was a child action with Html.Action, and it was slower because it went through the whole action pipeline. View components replaced that in Core and they are the better tool.",
+  project: "The pending-approval badge in the header of the procurement screens is a view component — it counts what is waiting for the logged-in user, so it has to query on every page. The document line template is a partial view, because the parent already has the lines.",
+  remember: "Needs its own data, it is a view component. Just markup, partial view."
+},
+
+{
+  id: "net-jwt-storage", topic: "aspnet",
+  q: "Is a JWT encrypted? Where do you store it on the client?",
+  tags: ["JWT encrypted", "signed not encrypted", "base64", "store token", "localStorage", "httpOnly cookie", "XSS token theft", "token expiry"],
+  simple: "No, a normal JWT is signed, not encrypted. Anyone can read what is inside it. The signature only proves it has not been tampered with. So never put anything secret in it.",
+  answer: "This is one people get wrong, so I am careful with it. A standard JWT is three base64 parts — header, payload, signature. Base64 is encoding, not encryption. Paste a token into jwt.io and you can read the whole payload. What the signature gives you is integrity: if somebody changes the role claim from User to Admin, the signature no longer matches and the server rejects it.\nSo the rule is never put anything in a token you would not be happy for the user to read. A user id, a vendor code, roles, an expiry — fine. A password or anything confidential — never. If you genuinely need the contents hidden there is JWE, which is an encrypted JWT, but I have not needed it.\nOn where to store it, there is no perfect answer and I would say that honestly. localStorage is easy and survives a refresh, but any script running on the page can read it, so one XSS bug and the token is gone. An httpOnly cookie cannot be read by script at all, which closes that hole, but cookies are sent automatically so you have to deal with CSRF, which means SameSite and an antiforgery token.\nMy preference is the httpOnly cookie with SameSite, because an XSS that steals a token is worse than a CSRF you can defend against directly. Either way, keep the access token short-lived and use a refresh token, so a stolen one is only useful for a few minutes.",
+  project: "In the Vendor Portal the token carries the vendor code as a claim, and every query is filtered by that claim on the server. Even if somebody did get hold of a token, they still only see their own data — and it expires quickly.",
+  remember: "Signed, not encrypted. Nothing secret inside. Short expiry, and httpOnly beats localStorage."
+},
+
+{
+  id: "net-long-running", topic: "aspnet",
+  q: "How do you handle a long-running operation in an API?",
+  tags: ["long running request", "202 accepted", "polling", "background job", "Hangfire", "job status endpoint", "timeout", "SignalR progress", "how do you handle long-running work in an api", "how would you handle a long-running operation in an api"],
+  simple: "You do not make the user wait on the request. You accept the work, return a job id straight away, and let them check on it or get pushed an update when it finishes.",
+  answer: "If a request is going to take more than a few seconds, holding the HTTP connection open is the wrong design. The browser or the load balancer will time out, the user has no idea whether it worked, and if they hit refresh you get the whole job running twice.\nWhat I do instead is accept the request, validate it, queue the work, and return 202 Accepted with a job id and a URL where the status can be read. The client then either polls that status endpoint, or — better — I push the progress to it.\nThe queue has to survive a restart. That is why I use Hangfire with its storage in SQL Server rather than a fire-and-forget Task, because a plain background task dies with the app pool recycle and nobody ever finds out.\nThe job itself has to be safe to run twice, so the handler is idempotent and keyed on something stable. And the user needs to see failures, not just successes, so the status record holds a state and an error message rather than just disappearing.\nFor the push side I use a SignalR hub, so a long import shows a real progress bar instead of a spinner that tells you nothing.",
+  project: "The data migration and bulk import screens in the Vendor Portal work exactly this way — Hangfire does the work, the SignalR hub pushes progress to the browser, and the user can leave the page and come back to the status.",
+  remember: "202 and a job id. Hangfire so it survives a recycle. SignalR so they can watch it."
+},
+
+{
+  id: "net-idempotency", topic: "aspnet",
+  q: "What is idempotency? Which HTTP verbs are idempotent?",
+  tags: ["idempotency", "idempotent", "PUT vs PATCH vs POST", "double submit", "retry safe", "idempotency key", "duplicate invoice", "what is idempotency and why does it matter", "how do you ensure idempotency for post operations", "put vs patch vs post which are idempotent"],
+  simple: "Idempotent means doing it twice has the same effect as doing it once. GET, PUT and DELETE are. POST is not, which is why a double-click can create two invoices.",
+  answer: "An operation is idempotent if repeating it does not change the outcome. GET obviously — reading twice changes nothing. PUT replaces a resource with exactly what you sent, so sending it five times leaves the same result. DELETE is idempotent too: the first call removes it, the rest find nothing to remove, and the end state is the same.\nPOST is the one that is not, because it creates something new each time. PATCH is usually not either, because it applies a change rather than setting a value — increase the quantity by one, run it twice, and you have added two.\nThis is not a theory question for me, it is the double-submit problem. A user clicks Save, the response is slow, they click again, and you have two purchase invoices against the same purchase order.\nI deal with it in three places. On the client the button disables on submit. In the database there is a unique constraint on the real business key — the document number per company per year — so even if two requests arrive, the second one fails on the constraint rather than creating a duplicate. And for anything coming from another system I take an idempotency key on the request and store it, so a retry returns the original result instead of doing the work again.\nThat last one matters most for integrations, because a retry is normal there, not an accident.",
+  project: "The SAP sync handlers are keyed on the document id for exactly this reason — the queue retries on a transient failure, and without that key a retry would post the same invoice into SAP twice.",
+  remember: "GET, PUT, DELETE yes. POST no. Unique constraint in the database is the real guard."
+},
+
+{
+  id: "net-project-structure", topic: "aspnet",
+  q: "How would you structure a new ASP.NET Core Web API project?",
+  tags: ["project structure", "solution layout", "layered architecture", "folder structure", "API project", "where does logic go", "new project setup", "how would you structure a new asp net core web api project", "how would you lay out a new solution"],
+  simple: "Four projects — API, Services, Data, and a shared Contracts or Domain project. Controllers stay thin, the rules live in the service layer, and everything is wired through interfaces.",
+  answer: "I would keep it boring and layered, because that is what the next person can read.\nThe API project holds controllers, middleware, the startup wiring and configuration. Controllers do three things: take the request, check the model is valid, call a service. No business rules, no SQL.\nThe Services project holds the rules. It takes and returns DTOs, never entities, so the database shape does not leak out to the client.\nThe Data project holds the DbContext, the entities, the migrations and the repositories, plus the ADO.NET helper for the tuned queries that the ORM should not be doing.\nAnd a Contracts or Domain project holds the DTOs and the interfaces, so the API and the Services can both reference it without referencing each other's internals.\nOn top of that, from day one: dependency injection registered against interfaces, a global exception handler in middleware, Serilog with a correlation id on every log line, Swagger with the auth scheme documented, API versioning in the route, FluentValidation or data annotations on the inputs, and health check endpoints.\nI would not start with Clean Architecture's full folder ceremony on a small service. The layering matters; the number of projects beyond that is taste, and too many empty projects slows people down.",
+  project: "This is the layout of SCM.Data.Exchange and the Vendor Portal API. The one thing I would add if I started again is a test project, because neither has one.",
+  remember: "API, Services, Data, Contracts. Thin controllers. DTOs out, never entities."
+},
+
+{
+  id: "net-code-first-db-first", topic: "aspnet",
+  q: "Code First vs Database First — which do you use?",
+  tags: ["code first", "database first", "scaffold DbContext", "migrations", "existing database", "model first", "reverse engineer", "code first vs database first which do you use"],
+  simple: "Code First for anything new, because the model is in source control and migrations give you a history. Database First when the schema already exists or a DBA owns it, which has been the case on most of our older systems.",
+  answer: "Code First means the C# classes are the truth. You change a class, add a migration, and EF generates the SQL. The advantage is that the schema lives in source control next to the code, every change has an Up and a Down, and a new developer can build the database from nothing.\nDatabase First means the database is the truth and you generate the classes from it, with Scaffold-DbContext. That is the right choice when the schema already exists, when a DBA owns it, or when there is a lot of stored-procedure logic you are not about to move into C#.\nIn practice I have used both. The newer .NET 8 work is Code First. The older systems are Database First, because the schemas were there long before and the reporting procedures are hand-tuned.\nThe thing I would add is that Code First does not mean letting EF run itself against production. I generate the script, read it, and run it in the release window — because EF will quite happily script a drop-and-create for what is really a column rename, and take the data with it.",
+  project: "The Vendor Portal and the Data Exchange service are Code First with migrations. Smart Documents and the BI reporting database are Database First, because the tuned procedures came first and still do the heavy lifting.",
+  remember: "New work Code First. Existing or DBA-owned schema, Database First. Always script it before production."
+},
+
+{
+  id: "net-ef-sproc", topic: "aspnet",
+  q: "How do you call a stored procedure from EF Core?",
+  tags: ["stored procedure EF Core", "FromSqlRaw", "FromSqlInterpolated", "ExecuteSqlRaw", "keyless entity", "SQL injection EF", "raw SQL", "how do you call a stored procedure from ef core"],
+  simple: "FromSqlInterpolated for a procedure that returns rows, ExecuteSqlRaw for one that does not. Use the interpolated version so the values go across as parameters and not as string concatenation.",
+  answer: "If the procedure returns a set of rows that map to an entity, it is FromSqlRaw or FromSqlInterpolated on the DbSet. If the shape does not match an entity — a report with joined columns — I define a keyless entity type for it and query that instead.\nIf the procedure returns nothing and just does work, it is ExecuteSqlRaw or ExecuteSqlRawAsync on the Database property.\nThe important detail is injection. FromSqlRaw with a concatenated string is a SQL injection hole, exactly like string concatenation in ADO.NET. FromSqlInterpolated looks like string interpolation but EF turns the values into parameters, so it is safe. If I use FromSqlRaw I pass SqlParameter objects explicitly.\nTwo more things worth knowing. The results are still tracked unless you add AsNoTracking, and for a report that is pure cost. And you cannot compose freely on top of it — adding a Where after FromSql only works in limited cases, so I put the filtering inside the procedure where it belongs.\nHonestly though, when a query is heavy enough to be a tuned procedure, I often skip EF for it altogether and use the ADO.NET helper, because then I control the mapping and I can read several result sets in one round trip.",
+  project: "Smart Documents does both — EF 6 for the entity screens, and the ADO.NET helper for the procedures that return header, lines and totals in one call. Returning several result sets at once was a big part of cutting round trips by about half.",
+  remember: "FromSqlInterpolated for rows, ExecuteSqlRaw for work. Never concatenate into FromSqlRaw."
+},
+
+{
+  id: "net-concurrency", topic: "aspnet",
+  q: "How do you handle concurrency conflicts?",
+  tags: ["concurrency", "optimistic concurrency", "pessimistic locking", "RowVersion", "rowversion timestamp", "last write wins", "DbUpdateConcurrencyException", "two users same record", "what happens if two users save the same record", "how do you handle a concurrency conflict"],
+  simple: "Optimistic concurrency. Every row carries a RowVersion, the update checks it, and if someone else saved first the update affects zero rows and I tell the user instead of silently overwriting their colleague's work.",
+  answer: "The problem is two people opening the same purchase order, both editing, both clicking Save. Without anything in place the second save silently wins and the first person's change vanishes with no error. That is the worst outcome, because nobody knows it happened.\nI use optimistic concurrency. The table has a rowversion column, SQL Server updates it automatically on every change, and the value is loaded with the record and sent back with the update. The UPDATE has the original rowversion in its WHERE clause, so if anyone changed the row in the meantime, nothing matches and the row count comes back zero. In EF that surfaces as a DbUpdateConcurrencyException.\nWhat I do with the conflict depends on the screen. For most of ours I reload, show the user that the record changed and who changed it, and let them decide. For something where the fields do not overlap you can merge — take their change and keep the other person's. What I never do is just retry the save, because that is the silent overwrite again with extra steps.\nPessimistic locking — actually locking the row while someone edits — I avoid in a web application. The user might go to lunch with the row locked, and you cannot tell the difference between that and a crashed browser.",
+  project: "The approval screens needed this most. Two approvers opening the same document was a real scenario, and before the rowversion check the second save just overwrote the first decision.",
+  remember: "RowVersion in the WHERE clause. Zero rows means someone beat you. Tell the user, never silently overwrite."
+},
+{
+  id: "net-idor", topic: "aspnet",
+  q: "What is IDOR — insecure direct object reference?",
+  tags: ["IDOR", "insecure direct object reference", "broken access control", "change the id in the url", "ownership check", "authorisation bug", "horizontal privilege", "what is idor", "how do you make sure a vendor cannot see another vendor data", "can i change the id in the url and see someone else record"],
+  simple: "When the id in the URL is the only thing deciding what you get. Change invoice 1001 to 1002 in the address bar and you are looking at another company's invoice, because nobody checked it was yours.",
+  answer: "It is the most common serious finding in a penetration test and it is almost never a clever attack — the tester just edits a number in the URL.\nThe cause is always the same shape. The endpoint takes an id, loads that record, and returns it. Authentication passed, so the user is logged in, and the developer assumed that was enough. But being logged in says who you are, not what you are allowed to see.\nThe fix is an ownership check on the server, using the identity from the token rather than anything in the request. In the Vendor Portal the vendor code is a claim on the user, so the query is written to filter by that claim — give me invoice 1002 where the vendor code equals the one in your token. If it is not theirs the query returns nothing.\nI return 404 rather than 403 in that case, deliberately, because 403 confirms the record exists and that is information the caller should not have.\nWhat does not work: hiding the link in the UI, or using a GUID instead of a sequential id. A GUID is harder to guess but it is still the only thing protecting the record, and ids leak through logs, emails and exports.\nThe real rule is that every query that returns user data is scoped by the identity, not filtered afterwards in C# — because filtering afterwards means you already fetched it.",
+  project: "Four instances came out of the VAPT audit on Smart Documents. Every one was a screen where the document id was taken straight from the request. The fix was the same in all four: scope the query by the claim.",
+  remember: "The id alone is never authorisation. Scope the query by the token, and return 404."
 }
 
 ]);

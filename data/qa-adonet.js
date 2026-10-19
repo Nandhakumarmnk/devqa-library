@@ -48,7 +48,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "ado-sp", topic: "adonet", star: true,
   q: "How do you call a stored procedure in ADO.NET?",
-  tags: ["call stored procedure ado.net", "commandtype storedprocedure", "sqlcommand procedure"],
+  tags: ["call stored procedure ado.net", "commandtype storedprocedure", "sqlcommand procedure", "call stored procedure from c#", "call a stored procedure in c#", "execute stored procedure from code"],
   simple: "Put the procedure name in the command, set CommandType to StoredProcedure, add the parameters by name, open the connection, and execute.",
   answer: "Four steps:\n1. `new SqlCommand(procName, connection)` with `CommandType = CommandType.StoredProcedure`.\n2. Add each parameter with its SQL type — `cmd.Parameters.Add(\"@VendorId\", SqlDbType.Int).Value = id;`\n3. Open the connection (async in web code).\n4. Call the right Execute method, and dispose everything with `using`.\nTwo details that matter: if you forget `CommandType.StoredProcedure`, ADO.NET sends the name as raw SQL and you get a syntax error. And give `Add` the explicit SqlDbType and size rather than using `AddWithValue` — `AddWithValue` infers the type from the .NET value, and an inferred `nvarchar` against a `varchar` column causes an implicit conversion that stops the index being used.",
   code: "using var conn = new SqlConnection(_cs);\nusing var cmd  = new SqlCommand(\"usp_GetVendorStatement\", conn)\n{\n    CommandType = CommandType.StoredProcedure,\n    CommandTimeout = 60\n};\ncmd.Parameters.Add(\"@VendorId\", SqlDbType.Int).Value       = vendorId;\ncmd.Parameters.Add(\"@FromDate\", SqlDbType.Date).Value      = from;\nawait conn.OpenAsync();\nusing var rdr = await cmd.ExecuteReaderAsync();\nwhile (await rdr.ReadAsync()) { /* map */ }",
@@ -113,7 +113,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "ado-vs-ef", topic: "adonet", star: true,
   q: "You have EF Core — why still use ADO.NET?",
-  tags: ["ado.net vs ef core", "why ado.net", "when to use raw sql", "orm vs raw sql"],
+  tags: ["ado.net vs ef core", "why ado.net", "when to use raw sql", "orm vs raw sql", "when do you use a stored procedure instead of ef", "why use stored procedures at all when you have ef", "when do you use raw sql instead of ef", "is repository over ef an anti-pattern"],
   simple: "Because on the heavy report queries you want to decide the exact SQL. EF is excellent at CRUD and weaker at a ten-join report with grouping — and there you need the execution plan to be yours.",
   answer: "EF Core wins for entity CRUD: less code, change tracking, migrations, LINQ. I use it for the great majority of the data access.\nI drop to ADO.NET when:\n- The query is a **tuned report** — many joins, grouping, window functions — where I want exactly the SQL I tested in SSMS and the plan I checked.\n- The operation is **set-based and bulk**, where loading entities to change them would be absurd.\n- EF generates something I cannot influence enough, or the mapping overhead is measurable on a large result set.\nThis is not either/or. The same application uses both, chosen per query. The deciding question is whether I need the ORM's conveniences or the database's exact behaviour.",
   project: "That is precisely how the Vendor Portal is built: EF Core everywhere, with ADO.NET confined to the account statement, outstanding and payment report repositories. Those three are the screens where the SQL was tuned against real data volumes, and handing them to the ORM would have given up the plan I had just spent time getting right.",
@@ -143,7 +143,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "ado-transaction", topic: "adonet", star: true,
   q: "How do you handle transactions in ADO.NET?",
-  tags: ["sqltransaction", "transaction ado.net", "rollback commit", "begintransaction"],
+  tags: ["sqltransaction", "transaction ado.net", "rollback commit", "begintransaction", "how do you handle a transaction across several operations"],
   simple: "Begin a transaction on the connection, attach it to every command, commit at the end — and roll back in the catch so a half-finished operation never survives.",
   answer: "`conn.BeginTransaction()` returns a `SqlTransaction`. Every command in that unit of work must be given both the connection **and** the transaction, or it runs outside it and will not roll back.\nStructure: try/commit, catch/rollback, and `using` on the transaction so it disposes. An uncommitted transaction that is disposed rolls back, which is the safe default.\nThings I watch for:\n- Keep the transaction **short** — open it late, commit early, and never hold it across a user interaction or a remote call.\n- A rollback can itself throw if the connection has already dropped, so guard it.\n- `TransactionScope` is the alternative when the unit of work spans more than one connection, but it can escalate to a distributed transaction, so I use an explicit SqlTransaction when one connection is enough.",
   code: "using var conn = new SqlConnection(_cs);\nawait conn.OpenAsync();\nusing var tran = conn.BeginTransaction();\ntry\n{\n    using (var cmd = new SqlCommand(sqlHeader, conn, tran)) await cmd.ExecuteNonQueryAsync();\n    using (var cmd = new SqlCommand(sqlLines,  conn, tran)) await cmd.ExecuteNonQueryAsync();\n    tran.Commit();\n}\ncatch\n{\n    try { tran.Rollback(); } catch { /* connection already gone */ }\n    throw;\n}",
@@ -175,7 +175,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "ado-bulk", topic: "adonet", star: true,
   q: "How do you insert thousands of rows efficiently? (SqlBulkCopy)",
-  tags: ["sqlbulkcopy", "bulk insert", "excel upload performance", "batch insert"],
+  tags: ["sqlbulkcopy", "bulk insert", "excel upload performance", "batch insert", "how do you handle an excel bulk upload of 100000 rows safely"],
   simple: "Not with a loop of INSERTs. SqlBulkCopy streams the whole set to SQL Server in one operation — the difference on a few thousand rows is seconds instead of minutes.",
   answer: "A loop calling ExecuteNonQuery per row means one network round trip and one transaction per row. `SqlBulkCopy` uses the same bulk mechanism as BCP and sends them as a stream.\nHow I use it: load the rows into a DataTable or an `IDataReader`, map the columns explicitly with `ColumnMappings` (do not rely on ordinal order), set a sensible `BatchSize`, and write into a **staging table** rather than straight into the live one. Then one set-based MERGE or UPDATE/INSERT moves validated rows from staging into the master.\nStaging first matters for more than speed: a bad file can be inspected and discarded without ever touching master data, and the validation becomes one set-based query instead of per-row logic.",
   code: "using var bulk = new SqlBulkCopy(conn, SqlBulkCopyOptions.Default, tran)\n{\n    DestinationTableName = \"StagingVendorUpload\",\n    BatchSize = 2000,\n    BulkCopyTimeout = 120\n};\nbulk.ColumnMappings.Add(\"Code\", \"VendorCode\");\nbulk.ColumnMappings.Add(\"Name\", \"VendorName\");\nawait bulk.WriteToServerAsync(table);",

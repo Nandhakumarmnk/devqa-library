@@ -1,0 +1,2 @@
+# local dev certificate for the voice server (never commit a private key)
+.certs/

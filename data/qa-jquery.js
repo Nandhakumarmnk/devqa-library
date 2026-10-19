@@ -15,7 +15,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "jq-delegation", topic: "jquery", star: true,
   q: "Event delegation in jQuery — why does .click() fail on dynamic rows?",
-  tags: ["event delegation", "on vs click", "dynamic element click not working", "jquery on"],
+  tags: ["event delegation", "on vs click", "dynamic element click not working", "jquery on", "why does a click handler stop working after an ajax refresh"],
   simple: "`.click()` only attaches to elements that exist right now. Rows you add later through AJAX never got the handler. Attach to a parent that already exists and let the event bubble up to it.",
   answer: "`$('.btn-edit').click(...)` binds to the elements found at that moment. After an AJAX refresh the old elements are gone and the new ones have no handler — the single most common jQuery bug in dynamic grids.\nDelegation fixes it: `$('#grid').on('click', '.btn-edit', handler)` binds once to the container and matches the selector when the event bubbles up. It survives any number of re-renders and uses one handler instead of hundreds, which is also lighter on memory.\nI delegate to the nearest stable container rather than to `document`, so the event does not travel further than it needs to.",
   code: "// breaks after the grid reloads\n$('.btn-approve').click(onApprove);\n\n// works for current and future rows\n$('#poGrid').on('click', '.btn-approve', onApprove);",
@@ -37,7 +37,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "jq-vs-js", topic: "jquery",
   q: "Do we still need jQuery? jQuery vs modern JavaScript",
-  tags: ["jquery vs javascript", "vanilla js", "queryselector", "is jquery dead"],
+  tags: ["jquery vs javascript", "vanilla js", "queryselector", "is jquery dead", "how much jquery have you written"],
   simple: "Modern browsers now do natively most of what jQuery was invented for. New code does not need it — but a lot of working enterprise code uses it, and that code still has to be maintained.",
   answer: "jQuery solved cross-browser DOM access, AJAX and animation at a time when browsers disagreed on everything. Today `querySelector`, `classList`, `fetch`, `addEventListener` and CSS transitions cover the same ground without a 90 KB dependency, and SPA frameworks own the rendering.\nWhere it is still right: legacy screens, Bootstrap 4-era plugins, DevExtreme/DataTables-style widgets, and small server-rendered pages where adding a framework is not worth it.\nMy honest position in an interview: I write new front ends in React, I maintain and extend established jQuery modules, and I do not rewrite working screens just to remove a library.",
   code: "// jQuery\n$('#btnSave').on('click', save);\n// vanilla\ndocument.getElementById('btnSave').addEventListener('click', save);",
@@ -68,7 +68,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "js-closure", topic: "jquery", star: true,
   q: "What is a closure in JavaScript?",
-  tags: ["closure", "lexical scope", "private variable js", "iife"],
+  tags: ["closure", "lexical scope", "private variable js", "iife", "what is a closure give a real use"],
   simple: "A function remembers the variables from where it was created, even after that outer function has finished. That memory is the closure.",
   answer: "A closure is a function plus the scope it was defined in. When an inner function references an outer variable, that variable stays alive after the outer function returns.\nUses: private state (a counter or cache nobody outside can touch), factory functions that capture configuration, the module pattern, and every callback that uses a variable from its surrounding scope — which is most event handlers.\nThe cost is memory: a closure holding a large object or a DOM node keeps it from being collected, which is a real leak source in long-lived pages.",
   code: "function createCounter() {\n    let count = 0;                 // private\n    return { next: () => ++count };\n}\nconst c = createCounter();\nc.next();   // 1\nc.next();   // 2",
@@ -90,7 +90,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "js-promise", topic: "jquery", star: true,
   q: "Promises, async/await and callback hell",
-  tags: ["promise", "async await javascript", "callback hell", "then catch", "promise.all"],
+  tags: ["promise", "async await javascript", "callback hell", "then catch", "promise.all", "how do you run several async operations together"],
   simple: "A promise is a receipt for a value that is not ready yet. async/await lets you write code that waits for it without nesting callbacks inside callbacks.",
   answer: "A promise is pending, then fulfilled or rejected. `.then()` chains and `.catch()` handles errors, which already flattens the nested-callback pyramid.\n`async/await` is syntax over promises — `await` pauses the async function until the promise settles, and errors are caught with ordinary try/catch, so the code reads top to bottom.\nUseful combinators: `Promise.all` for independent calls in parallel (fails if any fails), `Promise.allSettled` when you want every result regardless, `Promise.race` for timeouts.\nThe mistake I watch for is awaiting inside a loop when the calls are independent — that serialises them when `Promise.all` would run them together.",
   code: "async function loadScreen(id) {\n  try {\n    const [vendor, orders] = await Promise.all([\n      fetch(`/api/vendors/${id}`).then(r => r.json()),\n      fetch(`/api/vendors/${id}/orders`).then(r => r.json())\n    ]);\n    render(vendor, orders);\n  } catch (e) { showError(e); }\n}",

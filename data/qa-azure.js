@@ -68,7 +68,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "az-devops", topic: "azure", star: true,
   q: "How does a CI/CD pipeline work in Azure DevOps?",
-  tags: ["azure devops", "ci cd", "pipeline", "build release", "yaml pipeline", "deployment automation"],
+  tags: ["azure devops", "ci cd", "pipeline", "build release", "yaml pipeline", "deployment automation", "walk me through your deployment pipeline", "what stages would your pipeline have", "dev uat sit production stages"],
   simple: "CI builds and tests the code every time someone pushes. CD takes that build and deploys it — to Dev automatically, and to UAT and Production with approval.",
   answer: "A **build (CI)** pipeline restores, builds, runs tests and publishes an artifact — for a .NET app usually the publish output plus the EF migration script. A **release (CD)** pipeline takes that artifact through environments, each with its own variables and approval gates.\nA typical .NET stage order: build → test → publish artifact → deploy to Dev → approval → UAT → approval and a change window → Production, with database scripts applied before the application files and a smoke test after.\nPractices that matter: the same artifact is promoted through every environment (never rebuilt per environment), secrets come from variable groups or Key Vault rather than the YAML, and every deployment has a rollback path — the previous artifact plus the rollback SQL script.",
   code: "trigger: [ main ]\nsteps:\n  - task: DotNetCoreCLI@2\n    inputs: { command: build, arguments: '--configuration Release' }\n  - task: DotNetCoreCLI@2\n    inputs: { command: test }\n  - task: DotNetCoreCLI@2\n    inputs: { command: publish, publishWebProjects: true, zipAfterPublish: true }\n  - publish: $(Build.ArtifactStagingDirectory)\n    artifact: drop",
@@ -120,7 +120,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "az-keyvault", topic: "azure", star: true,
   q: "How do you keep secrets out of the application? (Key Vault, managed identity)",
-  tags: ["key vault", "managed identity", "secrets", "connection string security", "configuration secrets"],
+  tags: ["key vault", "managed identity", "secrets", "connection string security", "configuration secrets", "how do you store passwords and secrets"],
   simple: "Passwords and connection strings should never sit in source control. Store them in a vault, and let the app prove who it is instead of carrying another password.",
   answer: "**Key Vault** holds secrets, keys and certificates with access policies and audit logging, and supports rotation.\n**Managed identity** gives the App Service or Function App an Azure AD identity, so it reads the vault with no credential stored anywhere — which removes the bootstrap problem of needing a secret to fetch your secrets.\nIn .NET this plugs into the configuration system, so `Configuration[\"Sap:Password\"]` resolves from the vault with no code change at the usage site.\nOutside Azure the equivalent discipline is the same: secrets in environment variables or a protected config on the server, never in the repository, different values per environment, and rotation when someone leaves.",
   code: "builder.Configuration.AddAzureKeyVault(\n    new Uri($\"https://{vaultName}.vault.azure.net/\"),\n    new DefaultAzureCredential());      // managed identity in Azure, dev credentials locally",
@@ -141,7 +141,7 @@ window.QA = (window.QA || []).concat([
 {
   id: "az-scaling", topic: "azure",
   q: "Scale up vs scale out, and how does autoscaling work?",
-  tags: ["scale up vs scale out", "autoscale", "horizontal scaling", "load balancer", "stateless app"],
+  tags: ["scale up vs scale out", "autoscale", "horizontal scaling", "load balancer", "stateless app", "what is wrong with in-memory cache behind a load balancer"],
   simple: "Scale up means a bigger machine. Scale out means more machines. Scaling out is what gives real resilience, but your app has to be stateless for it to work.",
   answer: "**Scale up (vertical)** — more CPU/RAM on one instance. Simple, but there is a ceiling and usually a restart.\n**Scale out (horizontal)** — more instances behind a load balancer. Better availability and nearly unlimited headroom, and in Azure you autoscale on a metric like CPU, queue length or request count with a cool-down period.\nFor scale-out to work the app must be stateless: no in-process session (use Redis or SQL), no in-memory cache assumed to be shared, no writing to the local disk, and background jobs must not run duplicated on every instance unless they are idempotent or leader-elected.\nThat last point is the one people forget — a recurring job deployed to three instances runs three times.",
   project: "This is a real constraint in our IIS environment too: with multiple worker processes an in-memory cache is per process and a Hangfire recurring job must not double-post. That is why the SAP sync handlers claim work through a database status flag — the same discipline any scaled-out cloud deployment needs.",
@@ -199,6 +199,17 @@ window.QA = (window.QA || []).concat([
   code: "git revert a1b2c3d            # safe undo of a pushed commit\ngit reset --soft HEAD~1      # undo the last local commit, keep changes staged\ngit reset --hard HEAD~1      # undo it and DISCARD the changes\ngit cherry-pick a1b2c3d      # copy one commit onto this branch\ngit stash && git stash pop   # park work, switch branch, bring it back",
   project: "On a shared branch I use revert, and keep reset for tidying my own feature branch before raising the pull request. Cherry-pick comes up when a production hotfix on main also has to reach a release branch that is behind.",
   remember: "Pushed? revert. Local only? reset. One commit elsewhere? cherry-pick. Park it? stash."
+}
+,
+
+{
+  id: "az-merge-rebase", topic: "azure",
+  q: "Merge vs rebase, and how do you resolve a conflict?",
+  tags: ["merge vs rebase", "git rebase", "merge conflict", "resolve conflict", "pull request", "git history", "feature branch", "force push", "how do you resolve a merge conflict"],
+  simple: "Merge keeps the real history and adds a merge commit. Rebase replays your commits on top of the latest main so the history is a straight line. I merge into shared branches and rebase my own feature branch before raising the pull request.",
+  answer: "Merge takes the two branches and ties them together with a merge commit. Nothing is rewritten, so the history shows exactly what happened, including the branching. It can get noisy on a busy repository, but it is safe.\nRebase takes my commits off my branch and replays them one by one on top of the current main, so it looks as though I started from today. The history is linear and much easier to read.\nThe rule I follow is the one most teams land on: rebase your own branch while it is still yours, merge when it goes into something shared. Never rebase a branch somebody else has pulled, because you are rewriting commits they already have and their next pull is a mess.\nFor the conflict itself — I pull the latest main first, so I am resolving against what is actually there. Git marks the conflicting region with both versions. I open the file and decide, and the important part is that I read both sides rather than taking mine because it is mine. If it is not obvious I go and ask the person who wrote the other side, because a conflict usually means two people solved the same problem differently and only one of those should survive.\nThen I build and run it before committing the resolution, because a file that merges cleanly in Git can still be broken code.\nIf I make a mess of it, git merge --abort puts everything back, which is worth knowing before you need it.",
+  project: "We use Git with feature branches and pull requests, with Azure DevOps holding the work items. I review most of the pull requests on my module, so I see the conflicts that come from two people touching the same screen.",
+  remember: "Rebase your own branch, merge into shared ones. Read both sides, then build before you commit."
 }
 
 ]);

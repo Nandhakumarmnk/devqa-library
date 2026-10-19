@@ -6,6 +6,16 @@
 <title>DevQA Library</title>
 <meta name="description" content="Offline interview answer library for .NET, SQL, React, jQuery, Azure and Microservices — answers mapped to Nandhakumar M's real projects.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128218;</text></svg>">
+
+<!-- installable app: phone home screen, and Windows via Chrome's Install -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0d1016">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DevQA">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -61,6 +71,11 @@
         <svg viewBox="0 0 24 24" width="15" height="15"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" stroke="currentColor" stroke-width="1.7" fill="none"/></svg>
         <span id="themeTxt">Light mode</span>
       </button>
+      <!-- only appears when the browser will actually install it -->
+      <button class="foot-btn install" id="installBtn" hidden>
+        <svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Install app
+      </button>
     </div>
   </aside>
 
@@ -109,6 +124,14 @@
     <div class="composer">
       <div class="suggest" id="suggest" hidden></div>
 
+      <!-- live voice bar: what it is doing, and what it is hearing right now -->
+      <div class="voice-bar" id="voiceBar" hidden aria-live="polite">
+        <span class="orb"><i></i><i></i><i></i><i></i></span>
+        <span class="vb-txt" id="voiceBarTxt">Listening — ask your question</span>
+        <span class="spacer"></span>
+        <button type="button" id="voiceStop">Stop</button>
+      </div>
+
       <div class="composer-shell" id="composerShell">
         <div class="composer-box" id="composerBox">
           <textarea id="input" rows="1" placeholder="Ask anything…" autocomplete="off" spellcheck="false"></textarea>
@@ -126,7 +149,7 @@
                 <span id="scopeTxt">All topics</span>
                 <svg class="scope-x" viewBox="0 0 24 24" width="12" height="12"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
               </button>
-              <span class="kbd-hint" id="kbdHint"><kbd>&#8629;</kbd> send<span class="sep-dot">·</span><kbd>&#8679;&#8629;</kbd> new line</span>
+              <span class="kbd-hint" id="kbdHint"><kbd>&#8629;</kbd> send<span class="sep-dot">·</span><kbd>&#8679;&#8629;</kbd> new line<span class="sep-dot">·</span><kbd>&#8677;</kbd> take suggestion</span>
               <span class="listening-note" id="listeningNote" hidden>
                 <span class="bars"><i></i><i></i><i></i><i></i></span>
                 Listening… speak your question
