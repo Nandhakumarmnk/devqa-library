@@ -1320,7 +1320,11 @@
     streamCaret.className = "caret";
 
     var total = streamWords.length;
-    var frames = 34;                              // ~560 ms at 60fps
+    // 34 frames was ~560 ms, and with the block cascade behind it that put
+    // a full second of decoration in front of every answer. In an interview
+    // that second is the whole budget, so the reveal is quicker now — still
+    // a reply arriving rather than a page appearing, just not a performance.
+    var frames = 20;                              // ~330 ms at 60fps
     var perFrame = Math.max(3, Math.ceil(total / frames));
 
     function tick() {
@@ -1331,7 +1335,7 @@
       if (streamIdx < total) { streamRaf = requestAnimationFrame(tick); return; }
       streamRaf = null;
       Array.prototype.forEach.call(holder.querySelectorAll(".blk-off"), function (el, i) {
-        setTimeout(function () { el.classList.remove("blk-off"); }, i * 45);
+        setTimeout(function () { el.classList.remove("blk-off"); }, i * 28);
       });
       setTimeout(function () {
         if (streamCaret && streamCaret.parentNode) streamCaret.parentNode.removeChild(streamCaret);
@@ -1682,9 +1686,16 @@
       // A pause after the last final chunk means the question is finished.
       // 700 ms was short enough that an interviewer thinking mid-sentence
       // ("so... tell me... what dependency injection is") was heard as three
-      // separate questions. Wait for a real end-of-sentence pause instead.
+      // separate questions — but waiting 1200 ms on every question spent a
+      // second of the answer's budget to protect the cases that need it.
+      // So the wait fits what was actually heard: something that already
+      // reads as a whole question does not need protecting from itself,
+      // while a fragment gets the longer pause it needs.
       clearTimeout(submitTimer);
-      if (finalBuffer.trim()) submitTimer = setTimeout(submitHeard, 1200);
+      var heardSoFar = finalBuffer.replace(/\s+/g, ' ').trim();
+      if (heardSoFar) {
+        submitTimer = setTimeout(submitHeard, soundsFinished(heardSoFar) ? 650 : 1300);
+      }
     };
 
     recog.onerror = function (e) {
@@ -1788,6 +1799,18 @@
     if (/\?\s*$/.test(t)) return true;
     if (ASK_OPENER.test(t)) return true;
     return ASK_INSIDE.test(t) && t.split(' ').length >= 3;
+  }
+
+  /* A sentence left hanging on one of these is still being spoken —
+     "what is the", "tell me about your". Everything else that already
+     reads as a question can be answered without waiting the long pause,
+     which is where half a second per question was going. */
+  var DANGLING = /\b(the|a|an|of|for|in|on|at|to|with|and|or|but|your|my|our|their|its|this|that|these|those|about|between|from|is|are|do|does|did|can|how|what|why|when|which)$/;
+
+  function soundsFinished(t) {
+    if (!looksLikeAQuestion(t)) return false;
+    if (t.split(' ').length < 3) return false;      // too short to be sure
+    return !DANGLING.test(t);                        // not left mid-phrase
   }
 
   /* park it in the box without searching: nothing on screen is disturbed */

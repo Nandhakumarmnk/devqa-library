@@ -19,7 +19,7 @@
    pack added later.
    ============================================================ */
 
-var VERSION = 'devqa-v2-voice';
+var VERSION = 'devqa-v3-fast';
 var SHELL = ['./', './index.html'];
 
 self.addEventListener('install', function (e) {
