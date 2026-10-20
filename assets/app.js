@@ -1549,9 +1549,15 @@
 
      Answers come back as text — nothing is read aloud.
 
-     Honest note: the browser transcribes through its vendor's online
-     service, so voice is the one part of this app that touches the
-     network. It also needs a secure page, so it works on https:// and
+     Honest note on the network. The browser will happily transcribe
+     through its vendor's online service, and that is what this used
+     to do. Where the browser can run the model on this machine it now
+     does that instead — see the on-device block below — and then
+     nothing leaves the laptop at all. Where it cannot, voice still
+     works and still needs a connection to transcribe; the answers
+     never do, either way.
+
+     Either way it needs a secure page, so it works on https:// and
      localhost but not on a file:// page opened from disk.
      ============================================================ */
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1560,6 +1566,105 @@
   var wantListening = false;    // the user wants the mic live
   var mode = LS.get('mode', 'text');
   var micGranted = LS.get('micOk', false);
+
+  /* ---- on-device speech: the part that takes voice offline too -------
+     Chrome can run the recogniser on this machine instead of streaming
+     the audio to its vendor. It is the same API — set processLocally
+     and the microphone never touches the network.
+
+     The model is downloaded once (a few hundred MB, kept by the
+     browser, not by this folder) and after that voice works in
+     airplane mode, on hotel wifi that blocks everything, and in a
+     room with no signal. That is the whole point: the answers were
+     always local, and now the listening is too.
+
+     It degrades honestly. A browser without it, or a language with no
+     model, falls back to the online recogniser exactly as before —
+     voice still works, it just needs a connection to transcribe.      */
+  var LOCAL = {
+    can:   !!(SR && typeof SR.available === 'function' && 'processLocally' in SR.prototype),
+    state: 'unknown',    // unavailable | downloadable | downloading | available
+    ready: false,        // transcription is happening on this machine
+    asked: false         // we have already kicked off a download this session
+  };
+
+  function speechLang() { return LS.get('speechLang', 'en-IN'); }
+
+  function checkLocal() {
+    if (!LOCAL.can) { LOCAL.state = 'unavailable'; return Promise.resolve(LOCAL); }
+    return SR.available({ langs: [speechLang()], processLocally: true })
+      .then(function (s) {
+        LOCAL.state = String(s || 'unavailable');
+        LOCAL.ready = LOCAL.state === 'available';
+        paintMode();
+        return LOCAL;
+      })
+      .catch(function () { LOCAL.state = 'unavailable'; LOCAL.ready = false; return LOCAL; });
+  }
+
+  /* Downloading needs a user gesture, which the Voice click already is.
+     It runs in the background: voice stays usable on the online
+     recogniser throughout, and switches itself over when the model
+     lands — nothing to wait for and nothing to press twice. */
+  function installLocal(announce) {
+    if (!LOCAL.can || LOCAL.ready || LOCAL.asked) return;
+    LOCAL.asked = true;
+    LOCAL.state = 'downloading';
+    paintMode();
+    if (announce) toast('Downloading the offline voice model once — voice works now, and will keep working with no internet.');
+    var want = speechLang();
+    SR.install({ langs: [want], processLocally: true })
+      .then(function (ok) {
+        if (!ok) throw new Error('declined');
+        return checkLocal();
+      })
+      .then(function () {
+        if (!LOCAL.ready) return;
+        toast('Offline voice is ready — the microphone no longer needs internet.');
+        // pick it up on the next session rather than cutting this one off
+        if (wantListening && mode === 'voice' && recog) { try { recog.stop(); } catch (e) {} }
+      })
+      .catch(function () {
+        LOCAL.asked = false;                 // a failed download may be retried
+        return checkLocal();
+      });
+  }
+
+  /* ---- telling the recogniser what it is about to hear ---------------
+     Speech models are trained on ordinary English, which is why
+     "IEnumerable" comes back as "I innumerable" and ".NET" as "dot
+     net". Chrome takes a list of phrases to expect, and the one thing
+     this library has is the exact vocabulary of the questions it can
+     answer. Feeding it that is free accuracy on the only words that
+     matter here.
+
+     QA_SPEECH stays regardless: it repairs what still comes through
+     wrong, and it is the only correction available when the browser
+     has no phrase support.                                            */
+  var BIAS = null;
+  function biasPhrases() {
+    if (BIAS) return BIAS;
+    var Phrase = window.SpeechRecognitionPhrase;
+    if (!Phrase) return (BIAS = []);
+    var seen = {}, list = [];
+    function add(text, boost) {
+      var t = String(text || '').trim().toLowerCase();
+      // single words are what the model is already good at; the wins are
+      // in the multi-word terms it has never been trained on
+      if (t.length < 6 || t.indexOf(' ') < 0 || seen[t]) return;
+      seen[t] = 1;
+      list.push(new Phrase(t, boost));
+    }
+    // what the questions are actually called, and every alias they carry
+    for (var i = 0; i < DATA.length && list.length < 240; i++) {
+      (DATA[i].tags || []).forEach(function (t) { add(t, 2.0); });
+    }
+    // the corrected spellings, so the model can produce them directly
+    // instead of leaning on QA_SPEECH to repair them afterwards
+    var sp = window.QA_SPEECH || {};
+    for (var k in sp) { if (list.length < 280) add(sp[k], 3.0); }
+    return (BIAS = list);
+  }
 
   var finalBuffer = '', submitTimer = null, restartTimer = null;
   var starting = false, startingAt = 0;   // start() called, onstart not back yet
@@ -1615,9 +1720,13 @@
     $('micBtn').hidden = false;
     var hint = document.querySelector('.composer-hint');
     if (hint) {
-      hint.firstChild.nodeValue = mode === 'voice'
-        ? 'Answers run locally · only voice transcription uses the network · '
-        : 'Runs fully offline on your machine · no internet, no API, no cost · ';
+      hint.firstChild.nodeValue = mode !== 'voice'
+        ? 'Runs fully offline on your machine · no internet, no API, no cost · '
+        : LOCAL.ready
+          ? 'Fully offline · answers and speech both run on this machine · '
+          : LOCAL.state === 'downloading'
+            ? 'Answers run locally · fetching the offline voice model… · '
+            : 'Answers run locally · only voice transcription uses the network · ';
     }
     input.placeholder = mode === 'voice' ? 'Just speak — or type here' : 'Ask anything…';
   }
@@ -1657,10 +1766,21 @@
     if (!SR) return;
 
     recog = new SR();
-    recog.lang = LS.get('speechLang', 'en-IN');
+    recog.lang = speechLang();
     recog.interimResults = true;
     recog.continuous = true;          // stay open across several questions
     recog.maxAlternatives = 1;
+
+    // Run it on this machine when the model is here. Asked for and
+    // refused is still fine — the browser falls back to its online
+    // service, which is exactly what used to happen every time.
+    if (LOCAL.ready) { try { recog.processLocally = true; } catch (e) { LOCAL.ready = false; } }
+
+    // and tell it the vocabulary it is about to hear
+    try {
+      var ph = biasPhrases();
+      if (ph.length) recog.phrases = ph;
+    } catch (e) { /* unsupported, or over the browser's limit — not fatal */ }
 
     recog.onstart = function () {
       starting = false;
@@ -1729,9 +1849,18 @@
       // it kept needing the mic tapped again mid-interview. It now backs off and
       // keeps trying: once voice is on, it stays on until you turn it off.
       say('warn');
-      noteError(e.error === 'network'
-        ? 'Speech service unreachable — still trying. Voice needs internet; the answers do not.'
-        : 'Voice hiccup (' + e.error + ') — still listening.');
+      // A network error is the one the offline model exists to end, so say
+      // what to do about it rather than just reporting it again.
+      // Only offer the download when there is actually one to fetch:
+      // 'unavailable' means this browser has no model for the language,
+      // and telling someone to go and get it would send them nowhere.
+      noteError(e.error !== 'network'
+        ? 'Voice hiccup (' + e.error + ') — still listening.'
+        : LOCAL.state === 'downloadable'
+          ? 'Speech service unreachable. Switch Voice off and on to fetch the offline model — after that the microphone needs no internet.'
+          : LOCAL.state === 'downloading'
+            ? 'Speech service unreachable — the offline model is still downloading. It will stop needing this.'
+            : 'Speech service unreachable — still trying. The answers never needed it.');
     };
 
     recog.onend = function () {
@@ -1977,7 +2106,12 @@
     if (mode === 'voice') {
       startListening();                       // this click is the gesture the browser needs
       if (!micGranted) toast('Allow the microphone once — after that it keeps listening, no clicking.');
+      else if (LOCAL.ready) toast('Voice mode on, running offline. Just speak — it stays listening after each answer.');
       else toast('Voice mode on. Just speak — it stays listening after each answer.');
+      // the same click is also the gesture the model download needs
+      checkLocal().then(function () {
+        if (LOCAL.state === 'downloadable') installLocal(!micGranted ? false : true);
+      });
     } else {
       stopListening();
     }
@@ -2016,6 +2150,12 @@
 
   paintMode();
   paintListening();
+
+  /* Ask once, at startup, whether the offline model is already here —
+     this is a read, not a download, so it needs no gesture. It is what
+     makes the hint tell the truth before anything is clicked, and what
+     lets a remembered voice session start offline straight away. */
+  checkLocal();
 
   /* remembered voice mode: pick straight back up without a click */
   if (mode === 'voice' && micGranted && !voiceBlockReason()) {

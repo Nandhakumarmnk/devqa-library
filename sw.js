@@ -7,9 +7,13 @@
    or in an office with guest wifi that blocks everything. The answers
    never needed the network anyway; this just removes the download.
 
-   Voice is the exception and always will be: the browser transcribes
-   speech through its vendor's online service, so the microphone needs
-   a connection even when the answers do not.
+   Voice used to be the exception: the browser transcribed speech
+   through its vendor's online service, so the microphone needed a
+   connection even when the answers did not. Where the browser can run
+   the speech model on the machine it now does, and that exception is
+   gone — the model lives in the browser's own store, not in this
+   cache, so there is nothing here to precache for it. Where it cannot,
+   the old caveat still holds and voice alone needs the network.
 
    Nothing is precached by name beyond the page itself. The public
    copy of this library ships three data packs fewer than the private
@@ -19,7 +23,7 @@
    pack added later.
    ============================================================ */
 
-var VERSION = 'devqa-v4-predictive';
+var VERSION = 'devqa-v5-offline-voice';
 var SHELL = ['./', './index.html'];
 
 self.addEventListener('install', function (e) {

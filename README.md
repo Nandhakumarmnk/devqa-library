@@ -77,9 +77,19 @@ Answers are always text — nothing is read aloud.
 
 Two things worth knowing, and why it is opt-in rather than on by default:
 
-- **It is the one feature that uses the network.** The browser transcribes
-  speech through its vendor's online service. The answers still come from
-  the local files, and the footer text says so while voice is on.
+- **It runs offline too, where the browser can.** Chrome can transcribe on
+  the machine instead of streaming the audio to its vendor. The first time
+  you switch Voice on it fetches that model in the background — voice works
+  throughout, and moves over by itself when the model lands. After that
+  nothing leaves the machine at all and the footer says *Fully offline*.
+  A browser that cannot do it falls back to the online recogniser: voice
+  still works, it just needs a connection to transcribe. The answers never
+  do, either way, and the footer always says which of the two you are on.
+- **It is told what it is about to hear.** The library's own vocabulary —
+  every question title and alias, and every corrected spelling — is handed
+  to the recogniser as expected phrases, which is what stops `IEnumerable`
+  coming back as "I innumerable". Whatever still slips through is repaired
+  by `data/qa-speech.js` before the search runs.
 - **It needs a secure page.** It works on the published `https://` link and
   on `localhost`, but not on a file opened straight from disk — Chrome
   blocks the microphone there, and the mic button explains that rather than
