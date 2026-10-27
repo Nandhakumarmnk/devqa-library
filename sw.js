@@ -23,7 +23,7 @@
    pack added later.
    ============================================================ */
 
-var VERSION = 'devqa-v5-offline-voice';
+var VERSION = 'devqa-v6-mock-interview';
 var SHELL = ['./', './index.html'];
 
 self.addEventListener('install', function (e) {

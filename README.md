@@ -101,6 +101,29 @@ the microphone actually produces onto what you meant — "sequel server",
 them. The same map rescues typed queries, but only when the direct search is
 weak, so a query that already works is never rewritten.
 
+## Mock interview
+
+**Mock interview** in the sidebar turns it around: the app is the interviewer
+and you answer out loud.
+
+1. It picks a question (from the topic filter if one is set, starred and
+   not-yet-learned ones first) and reads it aloud. The mic is off while it
+   talks, so it never hears itself.
+2. It listens to your answer, and does **not** react to every word. Nothing
+   is judged while words are still coming, a pause to think does not end your
+   turn, and "um", "okay" and the like do not count as a reply. Your answer
+   is finished once you have said at least a few real words and then stayed
+   quiet for about 2.6 seconds, or 4.2 seconds if you stopped mid-phrase on
+   "and", "because", "the".
+3. It scores the answer against that question's key points: what you
+   covered, what you missed, the model answer to compare, and a running
+   average. Then it asks the next one.
+
+Say **"repeat"** to hear the question again, **"skip"** to move on, or
+**"stop interview"** to end. The bar above the composer has the same as
+buttons, plus **Done** to score straight away. Esc ends it too. Starting
+Voice mode ends the mock interview, since they share the microphone.
+
 ## How the search works
 
 There is no model and no API call. On load, every answer is indexed by its title

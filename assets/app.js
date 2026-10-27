@@ -2077,6 +2077,7 @@
   function startListening() {
     var reason = voiceBlockReason();
     if (reason) { toast(reason); return; }
+    if (MOCK.on) stopMock();               // one microphone, one owner
     wantListening = true;
     finalBuffer = '';
     resetEarly();
@@ -2168,6 +2169,334 @@
       if (wantListening && !listening) startRecognition();
     });
   }
+
+
+  /* ============================================================
+     Mock interview — the app is the interviewer, you are the candidate.
+
+     It picks a question, reads it out, then listens to your answer.
+     The thing it must NOT do is react to every word: the recogniser
+     streams a running transcript, and a pause to think ("so... the
+     middleware pipeline is...") is not the end of an answer. So the
+     transcript is only collected while you speak, and nothing is
+     judged until you have actually said something AND then gone quiet
+     long enough to mean it. "Um", "okay", a cough — none of those
+     count as a reply, and none of them end your turn.
+
+     Then it scores the answer against the key points the library
+     already holds, shows what you covered and what you missed, and
+     asks the next one.
+
+     Say "repeat" to hear the question again, "skip" or "next" to move
+     on, "stop interview" to end. Esc ends it too.
+     ============================================================ */
+  var MOCK = {
+    on: false,
+    state: 'off',        // off | asking | answering | judging
+    d: null,             // the question being asked
+    asked: {},           // ids already asked this session
+    count: 0,
+    total: 0,            // sum of scores, for the running average
+    heard: '',           // final chunks of the current answer
+    interim: '',
+    recog: null,
+    live: false,
+    silenceTimer: null,
+    capTimer: null,
+    nextTimer: null,
+    speakId: 0
+  };
+
+  // How long you must be quiet before your answer counts as finished.
+  // Long on purpose: a candidate pausing to think is not done.
+  var MOCK_SILENCE = 2600;
+  var MOCK_SILENCE_HANGING = 4200;   // ended on "the", "and", "because"…
+  var MOCK_MIN_WORDS = 4;            // fewer real words is not an answer yet
+  var MOCK_MAX_MS = 180000;          // three minutes, then it moves on anyway
+
+  var FILLER = /^(um+|uh+|er+|ah+|hmm+|mm+|okay|ok|yes|yeah|ya|right|so|well|actually|basically|like|sure|wait)$/;
+  var HANGING = /\b(the|a|an|of|for|in|on|at|to|with|and|or|but|so|because|which|that|is|are|was|then|like|my|our|we|i)$/;
+  var CMD_REPEAT = /^(please )?(repeat|repeat (that|it|the question)|say (that|it) again|come again|pardon|sorry what|can you repeat( that| the question)?)$/;
+  var CMD_SKIP = /^(skip|next|next question|pass|skip (it|this|this one)|i dont know|i do not know|no idea)$/;
+  var CMD_STOP = /^(stop|end|stop (the )?interview|end (the )?interview|finish|thats all|that is all)$/;
+
+  function mockText() { return (MOCK.heard + ' ' + MOCK.interim).replace(/\s+/g, ' ').trim(); }
+
+  function mockWords(t) {
+    return norm(t).split(' ').filter(function (w) { return w && !FILLER.test(w); });
+  }
+
+  function mockPick() {
+    var inScope = function (d) { return (!activeTopic || d.topic === activeTopic) && d.answer; };
+    var pool = DATA.filter(function (d) { return inScope(d) && !MOCK.asked[d.id]; });
+    if (!pool.length) { MOCK.asked = {}; pool = DATA.filter(inScope); }   // went through them all
+    // starred and not-yet-learned first, the way an interviewer leads with the common ones
+    var pri = pool.filter(function (d) { return d.star && !learned[d.id]; });
+    var from = pri.length ? pri : pool;
+    return from[Math.floor(Math.random() * from.length)];
+  }
+
+  /* the points a good answer touches, each reduced to the words that prove it was said */
+  function mockPoints(d) {
+    var kp = keyPoints(d);
+    if (kp.length < 2) kp = (d.tags || []).slice(0, 5);
+    return kp.map(function (p) {
+      var label = (String(p).match(/\*\*([^*]+)\*\*/) || [])[1] || p;
+      var text = String(p).replace(/\*\*/g, '').replace(/`/g, '');
+      var st = uniq(toks(label).map(stem));
+      if (!st.length) st = uniq(toks(text).map(stem));
+      return { text: text, stems: st.slice(0, 4) };
+    }).filter(function (p) { return p.stems.length; });
+  }
+
+  function mockScore(d, said) {
+    var mine = uniq(toks(fixSpoken(said)).map(stem));
+    var have = {}; mine.forEach(function (w) { have[w] = 1; });
+    function heardWord(s) {
+      if (have[s]) return true;
+      for (var i = 0; i < mine.length; i++) {
+        if (sameRoot(mine[i], s)) return true;
+        if (s.length >= 6 && dist(mine[i], s, 1) <= 1) return true;   // one slip of the recogniser
+      }
+      return false;
+    }
+    var points = mockPoints(d), hit = [], miss = [];
+    points.forEach(function (p) {
+      var n = p.stems.filter(heardWord).length;
+      (n >= Math.ceil(p.stems.length / 2) ? hit : miss).push(p);
+    });
+    var pct = points.length ? Math.round(hit.length / points.length * 100) : 0;
+    return { pct: pct, hit: hit, miss: miss };
+  }
+
+  /* ---- talking ---- */
+  function mockSpeak(text, then) {
+    var synth = window.speechSynthesis;
+    var done = false, id = ++MOCK.speakId;
+    // a cancelled or superseded line must not open the mic over the next one
+    function finish() { if (done || id !== MOCK.speakId) return; done = true; if (then && MOCK.on) then(); }
+    if (!synth || !window.SpeechSynthesisUtterance) { setTimeout(finish, 200); return; }
+    try { synth.cancel(); } catch (e) {}
+    var u = new SpeechSynthesisUtterance(text);
+    u.lang = speechLang();
+    u.onend = finish;
+    u.onerror = finish;
+    // some voices never fire onend — never leave the candidate waiting on it
+    setTimeout(finish, 1500 + text.length * 90);
+    synth.speak(u);
+  }
+
+  function mockBar(state, words) {
+    var bar = $('mockBar'), txt = $('mockBarTxt');
+    if (!bar) return;
+    bar.hidden = !MOCK.on;
+    bar.className = 'voice-bar mock-bar ' + state;
+    var lines = {
+      asking:  'Interviewer is asking…',
+      waiting: 'Your turn — answer when ready (say “repeat” or “skip”)',
+      judging: 'Got it — checking your answer…',
+      warn:    'Reconnecting the microphone…'
+    };
+    txt.textContent = state === 'hearing' ? '“' + words + '”' : (lines[state] || '');
+  }
+
+  /* ---- one question ---- */
+  function mockAsk(d, again) {
+    if (!MOCK.on) return;
+    clearTimeout(MOCK.nextTimer);
+    clearTimeout(MOCK.capTimer);
+    mockMicOff();
+    MOCK.d = d;
+    MOCK.state = 'asking';
+    MOCK.heard = ''; MOCK.interim = '';
+    if (!again) {
+      MOCK.asked[d.id] = 1;
+      MOCK.count++;
+      showLibrary(false);
+      if (welcome) welcome.style.display = 'none';
+      finishStream();
+      row('bot', 'Q',
+        '<div class="mock-q"><span class="mock-tag">Mock interview · Question ' + MOCK.count +
+        ' · ' + esc((TOPICS[d.topic] || {}).name || d.topic) + '</span>' +
+        '<div class="mock-qtext">' + esc(d.q) + '</div></div>');
+      thread.scrollTop = thread.scrollHeight;
+    }
+    mockBar('asking');
+    mockSpeak(d.q, mockListen);   // the mic stays off while it talks, so it never hears itself
+  }
+
+  /* ---- listening to the answer ---- */
+  function mockListen() {
+    if (!MOCK.on || MOCK.state !== 'asking') return;
+    MOCK.state = 'answering';
+    mockBar('waiting');
+    clearTimeout(MOCK.capTimer);
+    MOCK.capTimer = setTimeout(function () { if (MOCK.state === 'answering') mockFinish(!mockText()); }, MOCK_MAX_MS);
+    mockMicOn();
+  }
+
+  function mockMicOn() {
+    if (!MOCK.on || MOCK.state !== 'answering' || MOCK.recog) return;
+    var r = new SR();
+    r.lang = speechLang();
+    r.interimResults = true;
+    r.continuous = true;
+    r.maxAlternatives = 1;
+    if (LOCAL.ready) { try { r.processLocally = true; } catch (e) {} }
+    try { var ph = biasPhrases(); if (ph.length) r.phrases = ph; } catch (e) {}
+
+    r.onresult = function (e) {
+      var interim = '';
+      for (var i = e.resultIndex; i < e.results.length; i++) {
+        var t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) MOCK.heard += ' ' + t;
+        else interim += t;
+      }
+      MOCK.interim = interim;
+      var live = mockText();
+      if (live) mockBar('hearing', live.length > 90 ? '…' + live.slice(-88) : live);
+      // Every new word pushes the deadline back. Nothing is judged here —
+      // the answer is only finished once you have stopped talking.
+      mockArm();
+    };
+    r.onerror = function (e) {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        toast('Microphone blocked. Allow it from the address bar, then start the mock interview again.');
+        stopMock();
+        return;
+      }
+      if (e.error !== 'no-speech' && e.error !== 'aborted') mockBar('warn');
+    };
+    r.onend = function () {
+      if (MOCK.recog !== r) return;
+      MOCK.recog = null;
+      // A closed session ends the final chunk too — fold the half-heard words
+      // in so they are not lost, then reopen: the answer is not over because
+      // the browser decided to restart.
+      if (MOCK.interim) { MOCK.heard += ' ' + MOCK.interim; MOCK.interim = ''; }
+      if (MOCK.on && MOCK.state === 'answering') setTimeout(mockMicOn, 250);
+    };
+    MOCK.recog = r;
+    try { r.start(); }
+    catch (e) { MOCK.recog = null; setTimeout(mockMicOn, 600); }
+  }
+
+  function mockMicOff() {
+    clearTimeout(MOCK.silenceTimer);
+    var r = MOCK.recog;
+    MOCK.recog = null;
+    if (r) { try { r.abort(); } catch (e) {} }
+  }
+
+  function mockArm() {
+    clearTimeout(MOCK.silenceTimer);
+    var all = mockText().toLowerCase();
+    if (!all) return;
+    MOCK.silenceTimer = setTimeout(mockSilence, HANGING.test(all) ? MOCK_SILENCE_HANGING : MOCK_SILENCE);
+  }
+
+  /* you have gone quiet — but is that an answer? */
+  function mockSilence() {
+    if (MOCK.state !== 'answering') return;
+    var said = mockText();
+    var plain = norm(said).replace(/[.?!,']/g, '').trim();
+
+    if (CMD_STOP.test(plain)) { stopMock(); return; }
+    if (CMD_REPEAT.test(plain)) { mockAsk(MOCK.d, true); return; }
+    if (CMD_SKIP.test(plain)) { mockFinish(true); return; }
+
+    // only noises so far: not a reply, so keep waiting for the real one
+    if (mockWords(said).length < MOCK_MIN_WORDS) {
+      MOCK.heard = ''; MOCK.interim = '';
+      mockBar('waiting');
+      return;
+    }
+    mockFinish(false);
+  }
+
+  /* ---- judging, then on to the next ---- */
+  function mockFinish(skipped) {
+    if (MOCK.state !== 'answering') return;
+    MOCK.state = 'judging';
+    clearTimeout(MOCK.capTimer);
+    mockMicOff();
+    var d = MOCK.d;
+    var said = mockText();
+    MOCK.heard = ''; MOCK.interim = '';
+    mockBar('judging');
+
+    if (said && !skipped) row('user', 'N', '<div class="q-text">' + esc(said) + '</div>');
+
+    var sc = skipped ? { pct: 0, hit: [], miss: mockPoints(d) } : mockScore(d, said);
+    MOCK.total += sc.pct;
+    var of = sc.hit.length + sc.miss.length;
+    var grade = skipped ? 'Skipped' : sc.pct >= 75 ? 'Strong answer' : sc.pct >= 45 ? 'Decent — fill the gaps' : 'Needs work';
+    var cls = skipped ? 'skip' : sc.pct >= 75 ? 'good' : sc.pct >= 45 ? 'ok' : 'low';
+
+    var h = '<div class="mock-fb ' + cls + '">' +
+      '<div class="mock-score"><b>' + (skipped ? '—' : sc.pct + '%') + '</b> ' + grade +
+      '<span class="mock-avg">average ' + Math.round(MOCK.total / MOCK.count) + '% over ' + MOCK.count + '</span></div>' +
+      '<div class="mock-meter"><i style="width:' + (skipped ? 0 : sc.pct) + '%"></i></div>';
+    if (sc.hit.length) h += '<h3 class="a-h">You covered</h3><ul class="mock-list hit">' +
+      sc.hit.map(function (p) { return '<li>' + inlineMd(p.text) + '</li>'; }).join('') + '</ul>';
+    if (sc.miss.length) h += '<h3 class="a-h">' + (skipped ? 'Key points' : 'You missed') + '</h3><ul class="mock-list miss">' +
+      sc.miss.map(function (p) { return '<li>' + inlineMd(p.text) + '</li>'; }).join('') + '</ul>';
+    h += '<details class="mock-model"><summary>Model answer</summary>' + md(d.answer) +
+      (d.remember ? '<div class="a-note">' + md(d.remember) + '</div>' : '') + '</details></div>';
+    row('bot', 'Q', h);
+    thread.scrollTop = thread.scrollHeight;
+
+    var spoken = skipped ? 'Okay, moving on.'
+      : sc.pct >= 75 ? 'Good answer. You covered ' + sc.hit.length + ' of ' + of + ' key points.'
+      : 'You covered ' + sc.hit.length + ' of ' + of + ' key points. Check the ones you missed.';
+    mockSpeak(spoken, function () {
+      MOCK.nextTimer = setTimeout(function () { if (MOCK.on) mockAsk(mockPick()); }, 1800);
+    });
+  }
+
+  function startMock() {
+    var reason = voiceBlockReason();
+    if (reason) { toast(reason); return; }
+    if (mode === 'voice') setMode('text');   // one microphone, one owner
+    MOCK.on = true;
+    MOCK.count = 0; MOCK.total = 0; MOCK.asked = {};
+    $('mockBtn').classList.add('on');
+    $('mockTxt').textContent = 'End mock interview';
+    closeSidebar();
+    toast('Mock interview started. Answer out loud — it waits until you have finished.');
+    checkLocal();
+    mockAsk(mockPick());
+  }
+
+  function stopMock() {
+    if (!MOCK.on) return;
+    MOCK.on = false;
+    MOCK.state = 'off';
+    clearTimeout(MOCK.capTimer);
+    clearTimeout(MOCK.nextTimer);
+    mockMicOff();
+    MOCK.speakId++;
+    try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
+    $('mockBtn').classList.remove('on');
+    $('mockTxt').textContent = 'Mock interview';
+    mockBar('off');
+    if (MOCK.count) toast('Mock interview ended — ' + MOCK.count + ' questions, average ' + Math.round(MOCK.total / MOCK.count) + '%.');
+  }
+
+  if ($('mockBtn')) $('mockBtn').onclick = function () { if (MOCK.on) stopMock(); else startMock(); };
+  if ($('mockRepeat')) $('mockRepeat').onclick = function () { if (MOCK.on && MOCK.d) mockAsk(MOCK.d, true); };
+  if ($('mockSkip')) $('mockSkip').onclick = function () {
+    if (MOCK.state === 'asking') { MOCK.speakId++; try { window.speechSynthesis.cancel(); } catch (e) {} MOCK.state = 'answering'; }
+    mockFinish(true);
+  };
+  // finished early and do not want to wait out the pause
+  if ($('mockDone')) $('mockDone').onclick = function () {
+    if (MOCK.state !== 'answering') return;
+    if (mockWords(mockText()).length) mockFinish(false);
+    else toast('Nothing heard yet — answer out loud first.');
+  };
+  if ($('mockEnd')) $('mockEnd').onclick = stopMock;
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && MOCK.on) stopMock(); });
 
 
   /* ============================================================

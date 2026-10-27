@@ -56,6 +56,10 @@
         <svg viewBox="0 0 24 24" width="15" height="15"><path d="M4 5h6v14H4zM14 5h6v14h-6z" stroke="currentColor" stroke-width="1.7" fill="none"/></svg>
         Browse library
       </button>
+      <button class="foot-btn" id="mockBtn" title="The app asks, you answer out loud, it scores you">
+        <svg viewBox="0 0 24 24" width="15" height="15"><path d="M4 5h16v11H9l-5 4zM9 10h6" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linejoin="round" stroke-linecap="round"/></svg>
+        <span id="mockTxt">Mock interview</span>
+      </button>
       <div class="mode-switch" id="modeSwitch" role="group" aria-label="Input mode">
         <span class="mode-glider" id="modeGlider"></span>
         <button class="mode-opt active" data-mode="text">
@@ -130,6 +134,17 @@
         <span class="vb-txt" id="voiceBarTxt">Listening — ask your question</span>
         <span class="spacer"></span>
         <button type="button" id="voiceStop">Stop</button>
+      </div>
+
+      <!-- mock interview: who has the floor, and what it heard of your answer -->
+      <div class="voice-bar mock-bar" id="mockBar" hidden aria-live="polite">
+        <span class="orb"><i></i><i></i><i></i><i></i></span>
+        <span class="vb-txt" id="mockBarTxt">Interviewer is asking…</span>
+        <span class="spacer"></span>
+        <button type="button" id="mockDone" title="Finished — score it now">Done</button>
+        <button type="button" id="mockRepeat">Repeat</button>
+        <button type="button" id="mockSkip">Skip</button>
+        <button type="button" id="mockEnd">End</button>
       </div>
 
       <div class="composer-shell" id="composerShell">
