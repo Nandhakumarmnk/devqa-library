@@ -6,7 +6,7 @@ Type a keyword — `solid`, `index`, `useEffect`, `jwt`, `middleware` — and th
 is on screen in a couple of milliseconds. No server, no build step, no API key, no
 internet connection, and nothing to install.
 
-**293 answers** across twelve topics, each one written in the same four layers:
+**344 answers** across twelve topics, each one written in the same four layers:
 
 | Block | What it gives you |
 |---|---|
@@ -32,18 +32,18 @@ tags rather than `fetch`, specifically so the page works straight from the files
 
 | Topic | Answers | Covers |
 |---|---|---|
-| C# / .NET | 22 | value vs reference types, async/await, IEnumerable vs IQueryable, generics, disposal, collections |
-| OOP & SOLID | 18 | all five principles with examples, the four pillars, repository, factory, strategy, code review |
-| ASP.NET Core / API | 25 | middleware pipeline, REST design, JWT, claims, DI lifetimes, EF Core, SignalR, OWASP fixes |
-| ADO.NET | 23 | connected vs disconnected, the Execute methods, stored procedures, transactions, SqlBulkCopy, DBNull, connection pooling |
-| SQL Server | 46 | indexing and B-tree internals, execution plans, query tuning, joins, window functions, transactions, deadlocks, cursors, dynamic SQL, OPENQUERY and linked servers, collation, permissions, HA |
-| JavaScript & jQuery | 21 | closures, `this`, promises, event delegation, `==` vs `===`, debounce, array methods |
-| React.js | 21 | hooks, props vs state, keys, controlled forms, memoisation, routing, reusable component design |
-| Azure & Functions | 17 | triggers and bindings, hosting plans, Durable Functions, Key Vault, CI/CD, scaling |
-| Microservices | 17 | monolith vs services, communication, resilience, saga, tracing, when *not* to split |
-| HTML, CSS & TypeScript | 6 | TypeScript, semantic HTML, the box model, flexbox vs grid, responsive design, CSS specificity |
-| Coding Round | 19 | reverse a string, palindrome, duplicates, two sum, binary search, sorting, LINQ GroupBy, Big-O |
-| Scenario Based | 19 | slow in production, concurrent edits, bad deploy, data leak, legacy refactor, impossible deadline |
+| C# / .NET | 52 | value vs reference types, async/await, Task vs ValueTask, IEnumerable vs IQueryable, First vs Single, generics, disposal, collections |
+| OOP & SOLID | 28 | all five principles with examples, the four pillars, repository, factory, strategy, code review, xUnit / NUnit / Moq, SonarQube and quality gates |
+| ASP.NET Core / API | 41 | middleware pipeline, REST design, JWT, OAuth 2.0 / OpenID Connect, claims, DI lifetimes, HttpClientFactory, EF Core loading, transactions and bulk updates, SignalR, OWASP fixes |
+| ADO.NET | 25 | connected vs disconnected, the Execute methods, stored procedures, transactions, SqlBulkCopy, DBNull, connection pooling |
+| SQL Server | 49 | database design, indexing and B-tree internals, execution plans, query tuning, joins, window functions, transactions, deadlocks, cursors, dynamic SQL, OPENQUERY and linked servers, collation, permissions, HA |
+| JavaScript & jQuery | 22 | closures, `this`, promises, event delegation, `==` vs `===`, debounce, array methods |
+| React.js | 29 | hooks, props vs state, keys, controlled forms, memoisation, routing, reusable components, Redux Toolkit and RTK Query, TypeScript with React, Jest and React Testing Library, React 18, performance |
+| Azure & Functions | 23 | triggers and bindings, hosting plans, Durable Functions, Service Bus queues and topics, Storage, Key Vault, YAML CI/CD pipelines, scaling |
+| Microservices | 21 | monolith vs services, communication, resilience, saga, outbox, tracing, Dockerfiles and compose, Kubernetes objects, when *not* to split |
+| HTML, CSS & TypeScript | 8 | TypeScript, generics and utility types, semantic HTML, the box model, flexbox vs grid, responsive design, CSS specificity |
+| Coding Round | 22 | reverse a string, palindrome, duplicates, two sum, binary search, sorting, LINQ GroupBy, Big-O, SQL per-department and self-join classics, a debounced React search, a CRUD controller |
+| Scenario Based | 24 | slow in production, concurrent edits, bad deploy, data leak, legacy refactor, impossible deadline, Excel bulk upload, Agile / Scrum, requirements and mid-sprint changes |
 
 ## Features
 
@@ -134,7 +134,7 @@ bounded Damerau-Levenshtein distance (how far wrong a word may be scales with it
 length), and a described symptom is matched by how much of a known problem phrase it
 covers. There is always a best answer — the page never dead-ends on "no results".
 
-Searching all 293 answers takes about 2 ms, which the footer reports live.
+Searching all 344 answers takes about 2 ms, which the footer reports live.
 
 ## Add your own questions
 

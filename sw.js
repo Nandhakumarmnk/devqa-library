@@ -23,7 +23,7 @@
    pack added later.
    ============================================================ */
 
-var VERSION = 'devqa-v6-mock-interview';
+var VERSION = 'devqa-v7-full-stack-jd';
 var SHELL = ['./', './index.html'];
 
 self.addEventListener('install', function (e) {

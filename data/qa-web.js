@@ -76,6 +76,17 @@ window.QA = (window.QA || []).concat([
   code: "// vite.config.js — the whole thing, for a React app\nimport { defineConfig } from 'vite';\nimport react from '@vitejs/plugin-react';\n\nexport default defineConfig({\n  plugins: [react()],\n  server: { proxy: { '/api': 'https://localhost:7001' } }   // avoids CORS in dev\n});",
   project: "The dev proxy line is the one that matters day to day on our setup — the React dev server and the .NET API run on different ports, and proxying `/api` through the dev server is what avoids fighting CORS locally while keeping the production setup unchanged.",
   remember: "Transpile, bundle, optimise. Vite for new projects, Webpack because it is already there."
+},
+
+{
+  id: "web-ts-generics", topic: "web",
+  q: "TypeScript generics and utility types (Partial, Pick, Omit, Record)",
+  tags: ["typescript generics", "utility types", "partial", "pick", "omit", "record", "readonly", "required", "keyof", "typeof", "type guard", "discriminated union", "unknown vs any", "never", "as const"],
+  simple: "Generics let a function or type work with any type while keeping it checked — like List<T> in C#. Utility types build new types from existing ones: Partial makes every field optional, Pick keeps some, Omit drops some, Record builds a dictionary type.",
+  answer: "**Generics**: `function first<T>(items: T[]): T | undefined` — the caller's type flows through. Constrain with `extends`: `<T extends { id: number }>`. Same idea as C# generics.\n**Utility types I actually use**:\n- `Partial<Vendor>` — all optional; the shape of a PATCH or an edit form in progress.\n- `Required<T>` — the opposite.\n- `Pick<Vendor, 'id' | 'name'>` — a slimmer view type.\n- `Omit<Vendor, 'id'>` — a create DTO without the server-generated id.\n- `Readonly<T>` — prevents mutation; good for props and state.\n- `Record<Status, string>` — a typed dictionary, e.g. a label per status.\n- `ReturnType<typeof fn>`, `Awaited<T>`.\n**Narrowing**: `typeof`, `instanceof`, `in`, and **type guards** (`x is Vendor`). **Discriminated unions** — a shared `kind` field lets the compiler know which shape you have in each branch.\n**`any` vs `unknown`**: `any` switches checking off; `unknown` forces you to narrow before use — I use unknown for anything from outside (JSON, catch blocks).\n**`keyof` and `as const`** for turning a constant object into a union of its keys or values.",
+  code: "type VendorCreate = Omit<Vendor, 'id' | 'createdOn'>;\ntype VendorPatch  = Partial<Pick<Vendor, 'name' | 'email' | 'phone'>>;\n\nconst statusLabel: Record<Vendor['status'], string> = {\n  ACTIVE: 'Active',\n  BLOCKED: 'Blocked'\n};\n\nfunction byId<T extends { id: number }>(items: T[], id: number): T | undefined {\n  return items.find(x => x.id === id);\n}\n\ntype Result =\n  | { kind: 'ok'; data: Vendor }\n  | { kind: 'error'; message: string };\n\nfunction show(r: Result) {\n  if (r.kind === 'ok') return r.data.name;    // compiler knows data exists here\n  return r.message;\n}",
+  project: "In the Vendor Portal the same Vendor type serves the grid, the create form and the edit form through Omit and Partial, so a new field on the DTO is added once and every screen that should show it is flagged by the compiler. It mirrors how the C# side has one entity and separate create and update DTOs.",
+  remember: "Generics keep the type flowing. Partial / Pick / Omit / Record reshape types. unknown, not any."
 }
 
 ]);
